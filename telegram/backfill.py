@@ -174,7 +174,9 @@ def run(argv=None):
         chat_id = str(chat.get('id', ''))
         msgs = messages_of(chat, cfg, since, int(place.get(chat_id, 0)))
         print('# chat %s (%s): %d message(s) to read' % (name, chat_id, len(msgs)))
-        for window in windows(msgs):
+        for n, window in enumerate(windows(msgs)):
+            if n and n % 10 == 0:
+                context = analyze.context_from_state(ship.state() if hasattr(ship, 'state') else {}, SOURCE)
             facts = facts_for(window, chat_id, context)
             span = '%s..%s' % (window[0]['at'].strftime('%Y-%m-%d'), window[-1]['at'].strftime('%Y-%m-%d'))
             print('#  ', span, '%d msg' % len(window), '|', ' ; '.join(facts.notes) or ('nothing' if facts.empty() else
