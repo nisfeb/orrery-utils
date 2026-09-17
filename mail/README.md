@@ -77,3 +77,6 @@ The message: headers, text, attachments, everything. Only the Message-ID crosses
 - One folder per run. Point the config at another folder for another run.
 - An order without a number gets an id from the Message-ID, so a second mail about the same order without the number makes a second body. The number is in almost every shipping mail.
 - The `trip` rule takes the first date in the mail as the start. A confirmation that names a booking date before the travel date needs the model rule.
+- `at` comes from the `Date` header, so a message stamped ahead of the ship's clock is a future fact on the ship until that time passes. It lands, and it folds in when its time comes.
+
+Checked end to end on a dev ship on 2026-09-17: the three fact fixtures landed under a key scoped as above, the task was auto-approved with `by` `mail`, and the known-person rule wrote the new address for a person the ship knew.
