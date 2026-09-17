@@ -274,8 +274,10 @@ def existing_for(body, context, made):
             return hits[0]['id']
         #  several candidates: the one whose name is word for word the same wins,
         #  so "owner" folds into the body named owner and not into "owner wife"
-        key = person_key(body.get('name')) - ROLE_WORDS
-        exact = [b['id'] for b in hits if (person_key(b.get('name')) - ROLE_WORDS) == key]
+        def flat(n):
+            return re.sub(r'\s+', ' ', str(n or '').strip().lower())
+        exact = [b['id'] for b in hits if flat(b.get('name')) == flat(body.get('name'))
+                 or flat(body.get('name')) in [flat(a) for a in (b.get('aliases') or [])]]
         return exact[0] if len(exact) == 1 else None
     return None
 

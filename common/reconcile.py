@@ -314,7 +314,7 @@ def decided(ship):
             continue
         p = a.get('payload') or {}
         status = a.get('status')
-        seen[(p.get('from'), p.get('into'))].add('open' if status in ('proposed', 'approved', 'claimed') else status)
+        seen[frozenset((p.get('from'), p.get('into')))].add('open' if status in ('proposed', 'approved', 'claimed') else status)
     for key, statuses in seen.items():
         #  a merge that ran wins; a dismissal sticks over an open re-proposal
         out[key] = 'done' if 'done' in statuses else 'dismissed' if 'dismissed' in statuses else 'open' if 'open' in statuses else 'failed'
@@ -326,8 +326,18 @@ def dismiss_open(ship, pair, why):
     code, acts = ship.call('GET', '/actions?status=open')
     for a in acts if code == 200 and isinstance(acts, list) else []:
         p = a.get('payload') or {}
-        if a.get('kind') == 'merge' and (p.get('from'), p.get('into')) == pair:
+        if a.get('kind') == 'merge' and frozenset((p.get('from'), p.get('into'))) == frozenset(pair):
             ship.call('POST', '/actions/' + a['id'], {'status': 'dismissed', 'by': 'reconcile', 'note': why})
+
+
+def drop_stale(ship, state):
+    """Dismiss open merge proposals about a body that no longer exists."""
+    ids = {b['id'] for b in state.get('bodies', [])}
+    code, acts = ship.call('GET', '/actions?status=open')
+    for a in acts if code == 200 and isinstance(acts, list) else []:
+        p = a.get('payload') or {}
+        if a.get('kind') == 'merge' and (p.get('from') not in ids or p.get('into') not in ids):
+            ship.call('POST', '/actions/' + a['id'], {'status': 'dismissed', 'by': 'reconcile', 'note': 'reconcile: a body in this pair is gone'})
 
 
 def propose_merges(ship, proposals):
@@ -336,7 +346,7 @@ def propose_merges(ship, proposals):
     reader recreated the duplicate)."""
     past = decided(ship)
     for p in proposals:
-        was = past.get((p['from'], p['into']))
+        was = past.get(frozenset((p['from'], p['into'])))
         if was == 'dismissed':
             dismiss_open(ship, (p['from'], p['into']), 'reconcile: dismissed before')
             print('skipped (dismissed before)', p['from'], '->', p['into'])
@@ -344,6 +354,7 @@ def propose_merges(ship, proposals):
         if was == 'done':
             code, d = ship.call('POST', '/merge', {'from': p['from'], 'into': p['into']})
             print('merged again (approved before)' if code == 200 else 'merge refused', p['from'], '->', p['into'], '' if code == 200 else str(d)[:120])
+            dismiss_open(ship, (p['from'], p['into']), 'reconcile: merged again as approved before')
             continue
         action = {'kind': 'merge', 'title': 'Merge %s into %s' % (p['from'], p['into']),
                   'about': [p['from'], p['into']], 'payload': p, 'by': 'reconcile'}
@@ -428,6 +439,7 @@ def run(argv=None):
         print('merge %s into %s: %s' % (p['from'], p['into'], p['why']))
     print('%d proposal(s)' % len(proposals))
     if not args.dry_run:
+        drop_stale(ship, state)
         propose_merges(ship, proposals)
     return 0
 
