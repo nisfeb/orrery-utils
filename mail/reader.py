@@ -277,17 +277,27 @@ SHIP_RE = re.compile(r'\b(has (?:been )?shipped|is on its way|on the way to you|
 ORDER_RE = re.compile(r'\border\s*(?:#|number|no\.?)?\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{3,})', re.I)
 
 
+def order_number(text):
+    """An order number with a digit in it, or None. Prose after the word
+    order ("order from", "order your") is not a number."""
+    for m in ORDER_RE.finditer(text):
+        token = m.group(1)
+        if any(c.isdigit() for c in token):
+            return token
+    return None
+
+
 def shipping(msg, facts, ship):
     m = SHIP_RE.search(msg.haystack)
     if not m:
         return False
     phrase = m.group(1).lower()
-    order = ORDER_RE.search(msg.haystack)
-    number = order.group(1) if order else None
+    number = order_number(msg.haystack)
     bid = 'thing/order-' + (slug(number) if number else hashlib.sha256(msg.id.encode()).hexdigest()[:8])
     facts.body(bid, 'Order ' + number if number else 'An order', ['order ' + number] if number else ())
     if 'delivered' in phrase:
         facts.observations.append(obs(msg, bid, 'status', 'delivered', conf=90))
+        facts.observations.append(obs(msg, bid, 'location', None, conf=90))
         return True
     status = 'out for delivery' if 'out for delivery' in phrase else 'shipped'
     arrival = find_date(window(msg.haystack, r'\b(arriv\w*|deliver\w* (?:by|on)|expected|estimated)\b'), msg.date)
@@ -298,20 +308,45 @@ def shipping(msg, facts, ship):
 
 
 BILL_RE = re.compile(r'\b(invoice|bill|payment due|amount due|balance due)\b', re.I)
+PAID_RE = re.compile(r'\b(thank you for your payment|payment (?:received|confirmation|successful)|receipt|'
+                     r'has been paid|you paid|paid on)\b', re.I)
+ORG_WORDS = {'inc', 'llc', 'ltd', 'co', 'corp', 'company', 'bank', 'club', 'church', 'school', 'storage',
+             'support', 'services', 'service', 'group', 'team', 'billing', 'insurance', 'store', 'shop',
+             'market', 'office', 'dept', 'department', 'associates', 'partners', 'clinic', 'center', 'centre'}
+
+
+def looks_like_person(name):
+    """Two or three capitalised words with no company word among them."""
+    words = re.findall(r"[A-Za-z][A-Za-z'.-]*", name)
+    return (2 <= len(words) <= 3 and '@' not in name and all(w[0].isupper() for w in words)
+            and not any(w.lower().strip('.') in ORG_WORDS for w in words))
 
 
 def invoice(msg, facts, ship):
     if not BILL_RE.search(msg.haystack):
         return False
+    if PAID_RE.search(msg.haystack) and not re.search(r'\bdue\b', msg.haystack, re.I):
+        facts.notes.append('a receipt: nothing to pay')
+        return True
     amount = AMOUNT_RE.search(msg.haystack)
     if not amount:
         return False
-    org = msg.from_name or msg.from_addr.split('@')[-1].split('.')[0]
-    bid = 'org/' + slug(org)
-    facts.body(bid, org)
+    payee = msg.from_name or msg.from_addr
+    if '@' in payee:
+        payee = payee.split('@')[-1].split('.')[0]
     due = find_date(window(msg.haystack, r'\bdue\b(?:\s+(?:on|by|date))?[:\s]*', 60), msg.date)
-    action = {'kind': 'task', 'title': short('Pay ' + org + ' ' + amount.group(0).replace(' ', '')),
-              'about': [bid]}
+    action = {'kind': 'task', 'title': short('Pay ' + payee + ' ' + amount.group(0).replace(' ', ''))}
+    if looks_like_person(payee):
+        #  a person's request: the task is about the person the ship knows, never an org body
+        hits = [h for h in ship.resolve(payee) if isinstance(h, dict) and h.get('kind') == 'person']
+        if len(hits) == 1:
+            action['about'] = [hits[0]['id']]
+        else:
+            facts.notes.append('payee looks like a person the ship does not know: no body made')
+    else:
+        bid = 'org/' + slug(payee)
+        facts.body(bid, payee)
+        action['about'] = [bid]
     if due:
         action['due'] = iso(due)
     facts.actions.append(action)

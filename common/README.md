@@ -34,6 +34,25 @@ Config, in each reader's `config.json`:
 
 The system prompt in `analyze.py` teaches the model the three shapes and the rules: only what the messages say, existing bodies by id, new bodies only for named things, attribute names from the schema, `at` only when the message says when, honest confidence, one JSON object and nothing else. Change it there when the model's answers drift; the tests in `test_analyze.py` check the validation, not the model.
 
+## Association: twins the model makes anyway
+
+`validate` folds a new body into one the ship already has when they are the same thing: a `situation` or `activity` whose normalised title matches an existing one (prefixes like "Reminder:", dates, times and weekdays stripped, so "Reminder: Ballet @ Sep 16, 4:45pm" is `activity/ballet`), and a `person` whose name words are all contained in an existing person's name or alias, or the other way round ("Alice Baker" is `person/alice`; "Alice" is not "Andrew Baker"). Subjects, references and `about` lists in the same answer follow the fold, and a note names the twin. The prompt says the same in words: an occurrence of a repeating event is an observation on one `activity` (`last` at the occurrence's start, `next` when known), never a body per occurrence, and a person is never an org.
+
+## reconcile.py: associating what the readers left apart
+
+Two passes over a ship's state, run by the owner with the cookie jar, both with `--dry-run` first:
+
+```bash
+python3 reconcile.py --ship https://your-ship.example --jar jar activities --dry-run
+python3 reconcile.py --ship https://your-ship.example --jar jar activities
+python3 reconcile.py --ship https://your-ship.example --jar jar people              # files merge proposals
+python3 reconcile.py --ship https://your-ship.example --jar jar people --apply      # runs the approved merges
+```
+
+`activities` groups situations that are occurrences of one repeating event: by calendar id when the body id carries one (`situation/cal-...-<uid>-<n>`), otherwise by identical title; groups whose common title normalises alike are one activity. Each group of at least three (`--min`) becomes `activity/<slug>` with the group's most common title as its name, the other titles and the calendar ids as aliases, `status` `active`, `location` and `participants` from the occurrences, and one `last` observation per dated occurrence at that occurrence's start, expiring at its end. The occurrence bodies are deleted. Trips (`situation/<date>-trip`) and one-offs are left alone. The schema gains the `activity` kind if it lacks it.
+
+`people` finds bodies that name one person: an org whose name reads like a person's, two persons with the same email or phone, or names where every word of the shorter is in the longer. Each pair becomes an action of kind `merge`, payload `{"from", "into", "why"}`, with the person body (or the older body) as `into`, for the owner to approve on the page. `--apply` claims each approved merge and runs it through the ship's `POST /merge`, which moves the observations, re-points every reference, unions the aliases and deletes the duplicate; that route exists from orrery version 10.
+
 ## What stays here
 
 The message text goes to the model on your machine and nowhere else. The ship receives the validated facts and the message ids.
