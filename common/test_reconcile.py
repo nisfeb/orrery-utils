@@ -79,8 +79,9 @@ class Activities(unittest.TestCase):
         state = {'bodies': [sit('situation/x-' + str(i), 'Choir', '2099-01-0%dT18:00:00Z' % (i + 1), '2099-01-0%dT19:00:00Z' % (i + 1)) for i in range(3)]}
         plan = reconcile.plan_activities(state)[0]
         nxt = [o for o in plan['observations'] if o['attr'] == 'next']
-        self.assertEqual(len(nxt), 3)
+        self.assertEqual(len(nxt), 1)
         self.assertEqual((nxt[0]['value'], nxt[0]['until']), ('2099-01-01T18:00:00Z', '2099-01-01T19:00:00Z'))
+        self.assertEqual(len([o for o in plan['observations'] if o['attr'] == 'last']), 3)
 
     def test_one_offs_and_trips_stay(self):
         deleted = {d for p in self.plans.values() for d in p['delete']}
