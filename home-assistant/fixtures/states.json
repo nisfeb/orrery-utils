@@ -1,0 +1,11 @@
+[
+  {"entity_id": "device_tracker.sarah_phone", "state": "home", "last_changed": "2026-09-17T07:12:03.412000+00:00", "attributes": {"friendly_name": "Sarah's Phone", "source_type": "gps"}},
+  {"entity_id": "person.me", "state": "work", "last_changed": "2026-09-17T08:40:00+00:00", "attributes": {"friendly_name": "Me"}},
+  {"entity_id": "lock.front_door", "state": "locked", "last_changed": "2026-09-17T08:41:10+00:00", "attributes": {"friendly_name": "Front Door"}},
+  {"entity_id": "sensor.washer", "state": "running", "last_changed": "2026-09-17T09:00:00+00:00", "attributes": {"friendly_name": "Washer", "remaining_minutes": 45}},
+  {"entity_id": "climate.living_room", "state": "heat", "last_changed": "2026-09-16T22:00:00+00:00", "attributes": {"friendly_name": "Living Room", "temperature": 20.5}},
+  {"entity_id": "sensor.ev_battery", "state": "82", "last_changed": "2026-09-17T06:30:00+00:00", "attributes": {"friendly_name": "EV Battery", "unit_of_measurement": "%"}},
+  {"entity_id": "binary_sensor.basement_leak", "state": "on", "last_changed": "2026-09-17T09:15:30+00:00", "attributes": {"friendly_name": "Basement Leak", "device_class": "moisture"}},
+  {"entity_id": "sensor.garage_temperature", "state": "unavailable", "last_changed": "2026-09-17T05:00:00+00:00", "attributes": {"friendly_name": "Garage Temperature"}},
+  {"entity_id": "light.porch", "state": "off", "last_changed": "2026-09-17T05:30:00+00:00", "attributes": {"friendly_name": "Porch"}}
+]

@@ -117,7 +117,7 @@ Mail is where sensitive facts arrive: test results, statements, salaries. The re
 
 ### home-assistant: a Home Assistant client
 
-Both directions. It subscribes to state changes over Home Assistant's WebSocket API and turns the ones that mean something into observations; it also executes `home` actions after the owner approves them. Scope: kinds `person`, `place`, `thing`, `situation`; actions `home`; write.
+Both directions. It polls Home Assistant's REST API, turns the state changes of the entities you mapped into observations, and executes `home` actions after the owner approves them, within an allowlist of services. Scope: kinds `person`, `place`, `thing`, `situation`; actions `home`; write.
 
 | Home Assistant | what the client writes |
 |---|---|

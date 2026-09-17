@@ -1,0 +1,13 @@
+{
+  "home_assistant": {"url": "http://homeassistant.local:8123", "token_env": "HASS_TOKEN"},
+  "orrery": {"url": "https://your-ship.example", "token_env": "ORRERY_TOKEN"},
+  "state": "state.json",
+  "home": "place/home",
+  "map": [
+    {"entity": "device_tracker.sarah_phone", "kind": "presence", "body": "person/sarah"},
+    {"entity": "lock.front_door", "kind": "attr", "body": "thing/front-door", "attr": "locked", "name": "the front door", "values": {"locked": true, "unlocked": false}},
+    {"entity": "sensor.washer", "kind": "attr", "body": "thing/washer", "attr": "status", "name": "the washing machine", "until_minutes_attr": "remaining_minutes", "ignore": ["off"]},
+    {"entity": "binary_sensor.basement_leak", "kind": "alarm", "name": "basement leak", "location": "the basement"}
+  ],
+  "allow": ["light.* light.*", "switch.turn_off switch.*"]
+}

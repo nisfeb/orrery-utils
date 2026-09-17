@@ -1,0 +1,141 @@
+{
+ "bodies": [
+  {
+   "id": "thing/front-door",
+   "name": "the front door"
+  },
+  {
+   "id": "thing/washer",
+   "name": "the washing machine"
+  },
+  {
+   "id": "place/home",
+   "name": "Home"
+  },
+  {
+   "id": "thing/car",
+   "name": "the car"
+  },
+  {
+   "id": "situation/2026-09-17-basement-leak",
+   "name": "basement leak"
+  }
+ ],
+ "observations": [
+  {
+   "subject": "person/sarah",
+   "attr": "location",
+   "value": {
+    "ref": "place/home"
+   },
+   "at": "2026-09-17T07:12:03Z",
+   "conf": 90,
+   "source": {
+    "kind": "home-assistant",
+    "id": "device_tracker.sarah_phone@2026-09-17T07:12:03.412000+00:00"
+   }
+  },
+  {
+   "subject": "person/me",
+   "attr": "location",
+   "value": "work",
+   "at": "2026-09-17T08:40:00Z",
+   "conf": 90,
+   "source": {
+    "kind": "home-assistant",
+    "id": "person.me@2026-09-17T08:40:00+00:00"
+   }
+  },
+  {
+   "subject": "thing/front-door",
+   "attr": "locked",
+   "value": true,
+   "at": "2026-09-17T08:41:10Z",
+   "conf": 90,
+   "source": {
+    "kind": "home-assistant",
+    "id": "lock.front_door@2026-09-17T08:41:10+00:00"
+   }
+  },
+  {
+   "subject": "thing/washer",
+   "attr": "status",
+   "value": "running",
+   "at": "2026-09-17T09:00:00Z",
+   "conf": 90,
+   "source": {
+    "kind": "home-assistant",
+    "id": "sensor.washer@2026-09-17T09:00:00+00:00"
+   },
+   "until": "2026-09-17T09:45:00Z"
+  },
+  {
+   "subject": "place/home",
+   "attr": "climate",
+   "value": "heat",
+   "at": "2026-09-16T22:00:00Z",
+   "conf": 90,
+   "source": {
+    "kind": "home-assistant",
+    "id": "climate.living_room@2026-09-16T22:00:00+00:00"
+   }
+  },
+  {
+   "subject": "thing/car",
+   "attr": "charge",
+   "value": 82,
+   "at": "2026-09-17T06:30:00Z",
+   "conf": 90,
+   "source": {
+    "kind": "home-assistant",
+    "id": "sensor.ev_battery@2026-09-17T06:30:00+00:00"
+   }
+  },
+  {
+   "subject": "situation/2026-09-17-basement-leak",
+   "attr": "status",
+   "value": "open",
+   "at": "2026-09-17T09:15:30Z",
+   "conf": 90,
+   "source": {
+    "kind": "home-assistant",
+    "id": "binary_sensor.basement_leak@2026-09-17T09:15:30+00:00"
+   }
+  },
+  {
+   "subject": "situation/2026-09-17-basement-leak",
+   "attr": "started",
+   "value": "2026-09-17T09:15:30Z",
+   "at": "2026-09-17T09:15:30Z",
+   "conf": 90,
+   "source": {
+    "kind": "home-assistant",
+    "id": "binary_sensor.basement_leak@2026-09-17T09:15:30+00:00"
+   }
+  },
+  {
+   "subject": "situation/2026-09-17-basement-leak",
+   "attr": "participants",
+   "value": {
+    "ref": "person/me"
+   },
+   "at": "2026-09-17T09:15:30Z",
+   "conf": 90,
+   "source": {
+    "kind": "home-assistant",
+    "id": "binary_sensor.basement_leak@2026-09-17T09:15:30+00:00"
+   }
+  },
+  {
+   "subject": "situation/2026-09-17-basement-leak",
+   "attr": "location",
+   "value": "the basement",
+   "at": "2026-09-17T09:15:30Z",
+   "conf": 90,
+   "source": {
+    "kind": "home-assistant",
+    "id": "binary_sensor.basement_leak@2026-09-17T09:15:30+00:00"
+   }
+  }
+ ]
+}

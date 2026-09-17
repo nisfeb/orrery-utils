@@ -1,0 +1,18 @@
+{
+  "home_assistant": {"url": "http://homeassistant.local:8123", "token_env": "HASS_TOKEN"},
+  "orrery": {"url": "http://localhost:8080", "token_env": "ORRERY_TOKEN"},
+  "state": "state.json",
+  "home": "place/home",
+  "map": [
+    {"entity": "device_tracker.sarah_phone", "kind": "presence", "body": "person/sarah"},
+    {"entity": "person.me", "kind": "presence", "body": "person/me"},
+    {"entity": "lock.front_door", "kind": "attr", "body": "thing/front-door", "attr": "locked", "name": "the front door", "values": {"locked": true, "unlocked": false}},
+    {"entity": "sensor.washer", "kind": "attr", "body": "thing/washer", "attr": "status", "name": "the washing machine", "until_minutes_attr": "remaining_minutes", "ignore": ["off"]},
+    {"entity": "climate.living_room", "kind": "attr", "body": "place/home", "attr": "climate", "name": "Home"},
+    {"entity": "sensor.ev_battery", "kind": "attr", "body": "thing/car", "attr": "charge", "name": "the car", "numeric": true},
+    {"entity": "binary_sensor.basement_leak", "kind": "alarm", "name": "basement leak", "location": "the basement"},
+    {"entity": "sensor.garage_temperature", "kind": "attr", "body": "place/garage", "attr": "temperature", "numeric": true},
+    {"entity": "switch.nowhere", "kind": "attr", "body": "thing/nowhere", "attr": "status"}
+  ],
+  "allow": ["light.* light.*", "switch.turn_off switch.*", "climate.set_temperature climate.living_room"]
+}
