@@ -1,0 +1,8 @@
+{
+  "telegram": {"token_env": "TELEGRAM_TOKEN"},
+  "orrery": {"url": "https://your-ship.example", "token_env": "ORRERY_TOKEN"},
+  "state": "state.json",
+  "chats": [123456789, -1001234567890],
+  "people": {"123456789": "person/me", "987654321": "person/sarah"},
+  "reply_errors": true
+}

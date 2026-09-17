@@ -1,0 +1,8 @@
+{
+  "telegram": {"token_env": "TELEGRAM_TOKEN"},
+  "orrery": {"url": "http://localhost:8080", "token_env": "ORRERY_TOKEN"},
+  "state": "state.json",
+  "chats": [1001, -100200],
+  "people": {"1001": "person/me", "2002": "person/sarah"},
+  "reply_errors": true
+}

@@ -2,7 +2,7 @@
 
 Clients that feed [orrery](https://github.com/nisfeb/orrery) from outside Urbit, and act on what it proposes. Orrery keeps the model of your world on your ship and runs no AI. Everything that reads a mailbox, a calendar, a house or a phone lives here, off the ship, talking to orrery's HTTP API with a scoped key.
 
-Each integration is one directory with its own README. The first two are `mail`, an email reader, and `home-assistant`, a Home Assistant client. Anyone can add one; the conventions below are what make them fit together.
+Each integration is one directory with its own README. The first three are `mail`, an email reader, `home-assistant`, a Home Assistant client, and `telegram`, a bot that captures facts people type to it and delivers approved messages. Anyone can add one; the conventions below are what make them fit together.
 
 ## How an integration talks to orrery
 
@@ -97,7 +97,7 @@ An executor carries out approved actions of its own kind. It polls `GET /apps/or
 
 The `by` on what you write is the key's identity. Name keys after the integration and where it runs.
 
-## The first two integrations
+## The first integrations
 
 ### mail: an email reader
 
@@ -131,6 +131,12 @@ Both directions. It polls Home Assistant's REST API, turns the state changes of 
 Sensors chatter. The client writes on meaningful change only, never on every reading, and keeps its cursor on `last_changed`. An observation about a room temperature every minute is noise the analyst has to wade through; a situation named "the basement is wet" is a fact worth an action.
 
 Actions: the analyst proposes `{"kind": "home", "title": "Turn the porch light on", "payload": {"service": "light.turn_on", "entity_id": "light.porch"}}`. The client polls approved `home` actions, calls the service, and reports done or failed with the error text. Keep `home` off `auto`.
+
+### telegram: a bot for capture and delivery
+
+A Bot API client with long polling. People you map tell it facts in a short grammar, in a private chat or a group it sits in: `/at Route 9`, `/status stranded, waiting for a tow`, `/obs thing/subaru status broken down`, `/task Call the shop due 2026-09-18`. The sender's own body is the subject of `/at` and `/status`, so each person reports on themselves. Free text goes to a model hook that does nothing today. Scope: kinds `person`, `place`, `thing`, `situation`; actions `task`, `message`; write.
+
+The same bot delivers approved `message` actions whose payload says `via` `telegram` and names a person it knows, and reports done or failed. Keep `message` off `auto`, so no text leaves without a human reading it. A bot sees only what is sent to it; it never reads your own conversations with other people.
 
 ## More sources worth writing
 

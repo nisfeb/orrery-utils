@@ -1,0 +1,106 @@
+{
+ "501": {
+  "bodies": [],
+  "observations": [
+   {
+    "subject": "person/me",
+    "attr": "status",
+    "value": "stranded, waiting for a tow",
+    "at": "2026-09-17T16:00:00Z",
+    "conf": 100,
+    "source": {
+     "kind": "chat",
+     "id": "telegram/1001/10"
+    }
+   }
+  ],
+  "actions": []
+ },
+ "502": {
+  "bodies": [],
+  "observations": [
+   {
+    "subject": "person/me",
+    "attr": "location",
+    "value": "Route 9",
+    "at": "2026-09-17T16:01:00Z",
+    "conf": 100,
+    "source": {
+     "kind": "chat",
+     "id": "telegram/1001/11"
+    }
+   }
+  ],
+  "actions": []
+ },
+ "503": {
+  "bodies": [],
+  "observations": [
+   {
+    "subject": "thing/subaru",
+    "attr": "status",
+    "value": "broken down",
+    "at": "2026-09-17T16:02:00Z",
+    "conf": 100,
+    "source": {
+     "kind": "chat",
+     "id": "telegram/1001/12"
+    }
+   }
+  ],
+  "actions": []
+ },
+ "504": {
+  "bodies": [],
+  "observations": [
+   {
+    "subject": "person/sarah",
+    "attr": "location",
+    "value": {
+     "ref": "place/home"
+    },
+    "at": "2026-09-17T16:03:20Z",
+    "conf": 100,
+    "source": {
+     "kind": "chat",
+     "id": "telegram/-100200/40"
+    }
+   }
+  ],
+  "actions": []
+ },
+ "505": {
+  "bodies": [],
+  "observations": [],
+  "actions": [
+   {
+    "kind": "task",
+    "title": "Call the shop about the Subaru",
+    "due": "2026-09-18T00:00:00Z"
+   }
+  ]
+ },
+ "506": "sender 3003 is not in people: ignored",
+ "507": "chat 4004 is not in chats: ignored",
+ "508": "nothing",
+ "509": "unknown: sarah (a dry run resolves nothing)",
+ "510": {
+  "bodies": [],
+  "observations": [
+   {
+    "subject": "person/me",
+    "attr": "status",
+    "value": null,
+    "at": "2026-09-17T16:13:20Z",
+    "conf": 100,
+    "source": {
+     "kind": "chat",
+     "id": "telegram/1001/15"
+    }
+   }
+  ],
+  "actions": []
+ },
+ "511": "not a message",
+ "512": "commands: /at, /status, /obs, /task"
+}
