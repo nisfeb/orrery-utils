@@ -426,11 +426,18 @@ def known_person(msg, facts, ship):
     return False
 
 
+CONTEXT_EVERY = 50
+CONTEXT_USES = [0]
+
+
 def context_for(ship):
-    """The analyst's view of the ship, read once per run and grown with the
-    bodies this run creates, so a later message can refer to them."""
+    """The analyst's view of the ship, read at the start and again every
+    CONTEXT_EVERY messages the model sees, so a long backfill learns about
+    bodies made meanwhile (a consolidation, another reader), and grown with
+    the bodies this run creates in between."""
     global CONTEXT
-    if CONTEXT is None:
+    CONTEXT_USES[0] += 1
+    if CONTEXT is None or CONTEXT_USES[0] % CONTEXT_EVERY == 0:
         CONTEXT = analyze.context_from_state(ship.state(), SOURCE)
     return CONTEXT
 

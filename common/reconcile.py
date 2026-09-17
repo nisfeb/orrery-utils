@@ -134,7 +134,7 @@ def common_title(members):
     return sorted(counts.items(), key=lambda kv: (-kv[1], len(kv[0])))[0][0]
 
 
-def plan_activities(state, min_occurrences=3):
+def plan_activities(state, min_occurrences=3, reader=None):
     """Groups of situations that are one activity each, with the activity
     body and observations to write and the occurrence ids to delete. A
     calendar id groups occurrences whatever they were called; without one,
@@ -172,6 +172,17 @@ def plan_activities(state, min_occurrences=3):
             attrs = m.get('attrs') or {}
             started = value_of(attrs, 'started')
             ended = value_of(attrs, 'ended')
+            if not started and reader is not None:
+                #  an occurrence still ahead has its started row in the future, so the
+                #  fold hides it; the timeline has it
+                code, view = reader('GET', '/body/' + m['id'])
+                rows = [o for o in (view or {}).get('observations', []) if isinstance(view, dict)
+                        and o.get('status') != 'retracted' and isinstance(o.get('value'), str)]
+                for o in rows:
+                    if o['attr'] == 'started' and not started:
+                        started = o['value']
+                    if o['attr'] == 'ended' and not ended:
+                        ended = o['value']
             if isinstance(started, str) and analyze.iso_or_none(started):
                 at = analyze.iso_or_none(started)
                 starts.append(at)
@@ -351,7 +362,7 @@ def run(argv=None):
         raise SystemExit('give --ship and --jar, or --state')
     state = ship.state()
     if args.pass_ == 'activities':
-        plans = plan_activities(state, args.min)
+        plans = plan_activities(state, args.min, None if args.state else ship.call)
         for p in plans:
             print('%s <- %d situations (%d dated): %s' % (p['activity']['id'], len(p['delete']), p['occurrences'],
                                                          p['activity']['name']))
