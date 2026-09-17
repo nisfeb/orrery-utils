@@ -301,8 +301,50 @@ def plan_people(state):
     return proposals
 
 
+def decided(ship):
+    """What the owner already decided about merge pairs: (from, into) to the
+    status of the latest merge action about it, done, dismissed, failed or open."""
+    code, acts = ship.call('GET', '/actions?status=all')
+    out = {}
+    if code != 200 or not isinstance(acts, list):
+        return out
+    seen = defaultdict(set)
+    for a in acts:
+        if a.get('kind') != 'merge':
+            continue
+        p = a.get('payload') or {}
+        status = a.get('status')
+        seen[(p.get('from'), p.get('into'))].add('open' if status in ('proposed', 'approved', 'claimed') else status)
+    for key, statuses in seen.items():
+        #  a merge that ran wins; a dismissal sticks over an open re-proposal
+        out[key] = 'done' if 'done' in statuses else 'dismissed' if 'dismissed' in statuses else 'open' if 'open' in statuses else 'failed'
+    return out
+
+
+def dismiss_open(ship, pair, why):
+    """Dismiss any open merge action about this pair."""
+    code, acts = ship.call('GET', '/actions?status=open')
+    for a in acts if code == 200 and isinstance(acts, list) else []:
+        p = a.get('payload') or {}
+        if a.get('kind') == 'merge' and (p.get('from'), p.get('into')) == pair:
+            ship.call('POST', '/actions/' + a['id'], {'status': 'dismissed', 'by': 'reconcile', 'note': why})
+
+
 def propose_merges(ship, proposals):
+    """File a proposal per pair, except pairs the owner dismissed before (left
+    alone) and pairs the owner merged before (merged again at once, since a
+    reader recreated the duplicate)."""
+    past = decided(ship)
     for p in proposals:
+        was = past.get((p['from'], p['into']))
+        if was == 'dismissed':
+            dismiss_open(ship, (p['from'], p['into']), 'reconcile: dismissed before')
+            print('skipped (dismissed before)', p['from'], '->', p['into'])
+            continue
+        if was == 'done':
+            code, d = ship.call('POST', '/merge', {'from': p['from'], 'into': p['into']})
+            print('merged again (approved before)' if code == 200 else 'merge refused', p['from'], '->', p['into'], '' if code == 200 else str(d)[:120])
+            continue
         action = {'kind': 'merge', 'title': 'Merge %s into %s' % (p['from'], p['into']),
                   'about': [p['from'], p['into']], 'payload': p, 'by': 'reconcile'}
         code, d = ship.call('POST', '/act', action)

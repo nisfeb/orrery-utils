@@ -267,10 +267,16 @@ def existing_for(body, context, made):
                 return b['id']
         return None
     if kind == 'person':
-        hits = [b['id'] for b in pool if b['id'].startswith('person/')
+        hits = [b for b in pool if b['id'].startswith('person/')
                 and (same_person(body.get('name'), b.get('name'))
                      or any(same_person(body.get('name'), a) for a in (b.get('aliases') or [])))]
-        return hits[0] if len(hits) == 1 else None
+        if len(hits) == 1:
+            return hits[0]['id']
+        #  several candidates: the one whose name is word for word the same wins,
+        #  so "jackson" folds into the body named jackson and not into "jackson wife"
+        key = person_key(body.get('name')) - ROLE_WORDS
+        exact = [b['id'] for b in hits if (person_key(b.get('name')) - ROLE_WORDS) == key]
+        return exact[0] if len(exact) == 1 else None
     return None
 
 

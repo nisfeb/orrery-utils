@@ -93,6 +93,36 @@ class Activities(unittest.TestCase):
         self.assertIn('activity/parent-meeting', plans)
 
 
+class Decisions(unittest.TestCase):
+    class Ship:
+        def __init__(self):
+            self.calls = []
+
+        def call(self, method, path, body=None):
+            self.calls.append((method, path, body))
+            if path.startswith('/actions?'):
+                return 200, [
+                    {'kind': 'merge', 'status': 'dismissed', 'proposed': '2026-09-17T10:00:00Z', 'payload': {'from': 'person/a', 'into': 'person/b'}},
+                    {'kind': 'merge', 'status': 'done', 'proposed': '2026-09-17T11:00:00Z', 'payload': {'from': 'org/c', 'into': 'person/c'}},
+                    {'kind': 'merge', 'status': 'proposed', 'proposed': '2026-09-17T12:00:00Z', 'payload': {'from': 'person/d', 'into': 'person/e'}},
+                    {'kind': 'task', 'status': 'done', 'payload': {}},
+                ]
+            return 200, {'ok': True, 'id': 'x', 'status': 'proposed'}
+
+    def test_remembered(self):
+        ship = self.Ship()
+        reconcile.propose_merges(ship, [
+            {'from': 'person/a', 'into': 'person/b', 'why': 'x'},
+            {'from': 'org/c', 'into': 'person/c', 'why': 'x'},
+            {'from': 'person/d', 'into': 'person/e', 'why': 'x'},
+            {'from': 'person/f', 'into': 'person/g', 'why': 'x'},
+        ])
+        posts = [(path, body) for m, path, body in ship.calls if m == 'POST']
+        self.assertEqual(posts[0], ('/merge', {'from': 'org/c', 'into': 'person/c'}))
+        titles = [b['title'] for path, b in posts if path == '/act']
+        self.assertEqual(titles, ['Merge person/d into person/e', 'Merge person/f into person/g'])
+
+
 class People(unittest.TestCase):
     def test_proposals(self):
         props = {(p['from'], p['into']): p['why'] for p in reconcile.plan_people(STATE)}
