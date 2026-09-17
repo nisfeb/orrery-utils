@@ -8,7 +8,11 @@ source pointer (kind "mail", id the Message-ID) and the facts.
 
     python3 reader.py --config config.json --dry-run          # print, send nothing
     python3 reader.py --config config.json                    # read, send, advance the cursor
+    python3 reader.py --config config.json --months 6         # backfill: everything since six months ago
     python3 reader.py --dry-run --eml fixtures/shipped.eml    # run the rules on a file
+
+With a "model" block in the config, messages the rules do not claim go to
+a local model (LM Studio's OpenAI-compatible server) through ../common/analyze.py.
 
 Standard library only. See README.md for the mapping table and the scope.
 """
@@ -28,10 +32,17 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'common'))
+import analyze  # noqa: E402
+
 SOURCE = 'mail'
 MAX_BODIES = 50
 MAX_OBS = 200
 TEXT_LIMIT = 20000
+
+#  the analyst, set from the config at the start of a run; None means rules only
+MODEL = None
+CONTEXT = None
 
 
 # ==  the ship
@@ -68,6 +79,10 @@ class Ship:
         code, d = self.call('GET', '/body/' + bid)
         return d if code == 200 and isinstance(d, dict) else None
 
+    def state(self):
+        code, d = self.call('GET', '/state')
+        return d if code == 200 and isinstance(d, dict) else {}
+
     def observe(self, bodies, observations):
         return self.call('POST', '/observe', {'bodies': bodies, 'observations': observations})
 
@@ -83,6 +98,9 @@ class NoShip:
 
     def body(self, bid):
         return None
+
+    def state(self):
+        return {}
 
     def observe(self, bodies, observations):
         print(json.dumps({'observe': {'bodies': bodies, 'observations': observations}}, indent=1))
@@ -326,6 +344,33 @@ def skip_bulk(msg, facts, ship):
     return False
 
 
+#  the config's "filters": substrings matched case-insensitively against the
+#  sender (name and address) and the subject, and an optional allowlist of
+#  senders; set from the config at the start of a run
+FILTERS = {'from': [], 'subject': [], 'only_from': []}
+
+
+def skip_filtered(msg, facts, ship):
+    """Mail the owner said to ignore: a sender or subject on the skip lists,
+    or a sender off the allowlist when there is one. Runs after the
+    transactional rules, so a shop's shipping notice still lands even when
+    the shop is on the list."""
+    sender = (msg.from_name + ' ' + msg.from_addr).lower()
+    for s in FILTERS.get('from') or []:
+        if s.lower() in sender:
+            facts.notes.append('skipped: sender matches ' + s)
+            return True
+    for s in FILTERS.get('subject') or []:
+        if s.lower() in msg.subject.lower():
+            facts.notes.append('skipped: subject matches ' + s)
+            return True
+    only = FILTERS.get('only_from') or []
+    if only and not any(s.lower() in sender for s in only):
+        facts.notes.append('skipped: sender is not on only_from')
+        return True
+    return False
+
+
 def known_person(msg, facts, ship):
     """A person the ship knows, writing from an address it does not have."""
     if not msg.from_name or not msg.from_addr:
@@ -346,15 +391,38 @@ def known_person(msg, facts, ship):
     return False
 
 
+def context_for(ship):
+    """The analyst's view of the ship, read once per run and grown with the
+    bodies this run creates, so a later message can refer to them."""
+    global CONTEXT
+    if CONTEXT is None:
+        CONTEXT = analyze.context_from_state(ship.state(), SOURCE)
+    return CONTEXT
+
+
 def classify_with_model(msg, facts, ship):
-    """Where a local model plugs in. It may add bodies, observations and
-    actions to facts the same way the rules do. Money and health facts go to
-    the attributes income and health and nowhere else, so the owner's
-    sensitive list keeps them from every key."""
-    return False
+    """A message the rules did not claim goes to the local model, which may
+    add bodies, observations and actions. The model sees the text; the ship
+    gets the facts and the Message-ID. Money and health facts belong to the
+    attributes income and health and nowhere else, so the owner's sensitive
+    list keeps them from every key."""
+    if MODEL is None:
+        return False
+    ctx = context_for(ship)
+    who = (msg.from_name + ' <' + msg.from_addr + '>').strip() if msg.from_addr else msg.from_name
+    text = (msg.subject + '\n\n' + msg.text).strip()[:analyze.MAX_TEXT]
+    got = analyze.analyze(MODEL, [{'id': msg.id, 'at': iso(msg.date), 'who': who, 'text': text}], ctx)
+    facts.notes.extend(got['notes'])
+    bodies, observations, actions = analyze.to_batch(got, SOURCE)
+    for b in bodies:
+        facts.body(b['id'], b['name'], b.get('aliases', ()))
+        ctx['bodies'].append({'id': b['id'], 'name': b['name'], 'aliases': list(b.get('aliases', ()))})
+    facts.observations.extend(observations)
+    facts.actions.extend(actions)
+    return True
 
 
-RULES = [skip_calendar, shipping, invoice, trip, skip_bulk, known_person, classify_with_model]
+RULES = [skip_calendar, shipping, invoice, trip, skip_bulk, skip_filtered, known_person, classify_with_model]
 
 
 def classify(msg, ship):
@@ -382,10 +450,12 @@ def save_state(path, state):
     os.replace(tmp, path)
 
 
-def fetch_new(cfg, state, limit):
-    """Yield (uid, raw) for messages after the cursor, oldest first, and the
-    new cursor state. Messages are read with BODY.PEEK so nothing is marked
-    seen."""
+def fetch_new(cfg, state, limit, since=None):
+    """(uid, raw) for messages after the cursor, oldest first, with the
+    folder name and its UIDVALIDITY. With since (a date), a backfill: every
+    message from that day on that the backfill has not handled yet, tracked
+    apart from the live cursor. Messages are read with BODY.PEEK so nothing
+    is marked seen."""
     im = cfg['imap']
     password = os.environ.get(im.get('password_env', 'MAIL_PASSWORD'), '')
     conn = imaplib.IMAP4_SSL(im['host'], int(im.get('port', 993)))
@@ -397,9 +467,15 @@ def fetch_new(cfg, state, limit):
     ok, validity = conn.response('UIDVALIDITY')
     validity = int(validity[0]) if validity and validity[0] else 0
     key = folder
-    cur = state.get(key, {})
-    last = int(cur.get('last_uid', 0)) if cur.get('uidvalidity') == validity else 0
-    ok, data = conn.uid('search', None, 'UID %d:*' % (last + 1))
+    if since is None:
+        cur = state.get(key, {})
+        last = int(cur.get('last_uid', 0)) if cur.get('uidvalidity') == validity else 0
+        ok, data = conn.uid('search', None, 'UID %d:*' % (last + 1))
+    else:
+        cur = state.get('backfill', {}).get(key, {})
+        same = cur.get('uidvalidity') == validity and cur.get('since') == since.strftime('%Y-%m-%d')
+        last = int(cur.get('last_uid', 0)) if same else 0
+        ok, data = conn.uid('search', None, 'SINCE %s' % since.strftime('%d-%b-%Y'))
     uids = [int(u) for u in (data[0].split() if data and data[0] else []) if int(u) > last]
     uids.sort()
     out = []
@@ -448,12 +524,19 @@ def run(argv=None):
     ap.add_argument('--dry-run', action='store_true', help='print the batches, send nothing, keep the cursor')
     ap.add_argument('--eml', nargs='*', help='run the rules on these files instead of the mailbox')
     ap.add_argument('--limit', type=int, default=200, help='messages per run')
+    ap.add_argument('--since', help='backfill: every message from this day (YYYY-MM-DD) on')
+    ap.add_argument('--months', type=int, help='backfill: every message from this many months ago on')
+    ap.add_argument('--no-model', action='store_true', help='rules only, even with a model in the config')
     args = ap.parse_args(argv)
 
     cfg = {}
-    if not args.eml or not args.dry_run:
-        with open(args.config) as f:
-            cfg = json.load(f)
+    if not args.eml or not args.dry_run or os.path.exists(args.config):
+        try:
+            with open(args.config) as f:
+                cfg = json.load(f)
+        except OSError:
+            if not (args.eml and args.dry_run):
+                raise
     if args.dry_run:
         ship = NoShip()
     else:
@@ -461,6 +544,22 @@ def run(argv=None):
         if not token:
             raise SystemExit('no token: set ' + cfg['orrery'].get('token_env', 'ORRERY_TOKEN'))
         ship = Ship(cfg['orrery']['url'], token)
+    global MODEL, CONTEXT
+    MODEL, CONTEXT = None, None
+    for k in FILTERS:
+        FILTERS[k] = list((cfg.get('filters') or {}).get(k) or [])
+    mc = cfg.get('model')
+    if mc and not args.no_model and mc.get('enabled', True):
+        MODEL = analyze.Model(mc.get('url', analyze.DEFAULT_URL), mc.get('name'), int(mc.get('timeout', 180)))
+        try:
+            print('# model:', MODEL.model_name(), 'at', MODEL.url)
+        except RuntimeError as e:
+            raise SystemExit(str(e) + ' (start the server, or run with --no-model)')
+    since = None
+    if args.since:
+        since = datetime.strptime(args.since, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+    elif args.months:
+        since = (datetime.now(timezone.utc) - timedelta(days=30 * args.months)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     if args.eml:
         for path in args.eml:
@@ -474,17 +573,26 @@ def run(argv=None):
 
     state_path = cfg.get('state', 'state.json')
     state = load_state(state_path)
-    msgs, key, validity = fetch_new(cfg, state, args.limit)
-    print('%d new message(s) in %s' % (len(msgs), key))
-    for uid, raw in msgs:
+    msgs, key, validity = fetch_new(cfg, state, args.limit, since)
+    print('%d %s message(s) in %s' % (len(msgs), 'backfill' if since else 'new', key))
+    for n, (uid, raw) in enumerate(msgs, 1):
         msg = parse(raw)
         facts = classify(msg, ship)
-        print('#', uid, msg.id, '|', ' ; '.join(facts.notes) or ('nothing' if facts.empty() else 'facts'))
+        print('#', '%d/%d' % (n, len(msgs)), uid, msg.date.strftime('%Y-%m-%d'), msg.id, '|',
+              ' ; '.join(facts.notes) or ('nothing' if facts.empty() else 'facts'))
         if not facts.empty() and not send(ship, facts):
             print('stopping before uid %d so the next run retries it' % uid, file=sys.stderr)
             break
         if not args.dry_run:
-            state[key] = {'uidvalidity': validity, 'last_uid': uid}
+            cur = state.get(key, {})
+            live = int(cur.get('last_uid', 0)) if cur.get('uidvalidity') == validity else 0
+            if since is None:
+                state[key] = {'uidvalidity': validity, 'last_uid': uid}
+            else:
+                #  a backfill keeps its own place and only ever moves the live cursor forward
+                state.setdefault('backfill', {})[key] = {'uidvalidity': validity, 'since': since.strftime('%Y-%m-%d'), 'last_uid': uid}
+                if uid > live:
+                    state[key] = {'uidvalidity': validity, 'last_uid': uid}
             save_state(state_path, state)
     return 0
 

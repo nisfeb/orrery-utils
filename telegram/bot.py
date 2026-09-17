@@ -25,6 +25,13 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'common'))
+import analyze  # noqa: E402
+
+#  the analyst, set from the config at the start of a run; None means the grammar only
+MODEL = None
+CONTEXT = None
+
 SOURCE = 'chat'
 PLATFORM = 'telegram'
 MAX_BODIES = 50
@@ -68,6 +75,10 @@ class Ship:
         code, d = request(self.api + '/resolve?' + urllib.parse.urlencode({'q': q}), headers=self.h)
         return d if code == 200 and isinstance(d, list) else []
 
+    def state(self):
+        code, d = request(self.api + '/state', headers=self.h)
+        return d if code == 200 and isinstance(d, dict) else {}
+
     def observe(self, bodies, observations):
         return request(self.api + '/observe', 'POST', {'bodies': bodies, 'observations': observations}, self.h)
 
@@ -90,6 +101,9 @@ class NoShip:
 
     def resolve(self, q):
         return []
+
+    def state(self):
+        return {}
 
     def observe(self, bodies, observations):
         print(json.dumps({'observe': {'bodies': bodies, 'observations': observations}}, indent=1))
@@ -267,10 +281,30 @@ def handle(msg, cfg, ship):
     return facts
 
 
+def context_for(ship):
+    """The analyst's view of the ship, read once per run and grown with the
+    bodies this run creates."""
+    global CONTEXT
+    if CONTEXT is None:
+        CONTEXT = analyze.context_from_state(ship.state(), SOURCE)
+    return CONTEXT
+
+
 def classify_with_model(msg, sender_body, src, at, facts, ship):
-    """Where a local model plugs in: free text from a known person, with the
-    sender's body, the source pointer and the message time. It may add bodies,
-    observations and actions to facts. Nothing today."""
+    """Free text from a known person goes to the local model with the
+    sender's body, the source pointer and the message time. The model sees
+    the text; the ship gets the facts and the pointer."""
+    if MODEL is None:
+        return None
+    ctx = context_for(ship)
+    got = analyze.analyze(MODEL, [{'id': src['id'], 'at': iso(at), 'who': sender_body, 'text': str(msg.get('text') or '')}], ctx)
+    facts.notes.extend(got['notes'])
+    bodies, observations, actions = analyze.to_batch(got, SOURCE)
+    for b in bodies:
+        facts.bodies.append(b)
+        ctx['bodies'].append({'id': b['id'], 'name': b['name'], 'aliases': list(b.get('aliases', ()))})
+    facts.observations.extend(observations)
+    facts.actions.extend(actions)
     return None
 
 
@@ -427,6 +461,15 @@ def run(argv=None):
     args = ap.parse_args(argv)
     with open(args.config) as f:
         cfg = json.load(f)
+    global MODEL, CONTEXT
+    MODEL, CONTEXT = None, None
+    mc = cfg.get('model')
+    if mc and mc.get('enabled', True):
+        MODEL = analyze.Model(mc.get('url', analyze.DEFAULT_URL), mc.get('name'), int(mc.get('timeout', 180)))
+        try:
+            print('# model:', MODEL.model_name(), 'at', MODEL.url)
+        except RuntimeError as e:
+            raise SystemExit(str(e) + ' (start the server, or remove the model block)')
     reader = None
     if not args.updates:
         btok = os.environ.get(cfg['telegram'].get('token_env', 'TELEGRAM_TOKEN'), '')

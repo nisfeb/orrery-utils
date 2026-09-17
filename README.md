@@ -166,6 +166,12 @@ Ranked by how much of the world they explain per hour of work. Each is one direc
 | photos (EXIF) | `person/me.location` at the time a photo was taken, for backfill | low `conf`, and only ever the owner's own photos |
 | voice memos and smart speakers | a transcribed ask becomes a `task` or an observation the owner dictated | the transcription stays on the client |
 
+## The analyst and the past
+
+`common/analyze.py` is the one piece the readers share: it hands a window of messages to a local model (LM Studio's OpenAI-compatible server at `http://localhost:1234/v1`, any model it lists) and validates the answer into orrery's shapes before anything is sent: ids well formed, subjects known or created in the same answer, values bounded, times parseable. The mail reader and the Telegram bot use it for the text their rules do not claim; a `model` block in each config turns it on. The message text goes to the model on your machine and nowhere else.
+
+To build state from what already happened, both readers can run over the past. `mail/reader.py --months 6` reads a folder from that day on through the rules and the model, resumably, and `telegram/backfill.py --export result.json --months 6` does the same for a Telegram Desktop export. `at` is each message's own time, so the facts land where they belong and the timeline reads as it happened.
+
 ## Writing a new integration
 
 1. Make a directory named after the source. Its README carries the mapping table (source field to body kind and attribute), the scope the key needs and why, the source kind and id form, what stays on the client, and how to run it.

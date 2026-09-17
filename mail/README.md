@@ -22,6 +22,41 @@ Dates: `at` is the message's `Date` header, because the fact became known when t
 
 Sensitive facts: the rules write neither `health` nor `income`. A model that reads statements or results must map money and health facts to those two attributes and nowhere else, so one line in the policy's `sensitive` list keeps them from every key.
 
+## The model
+
+With a `model` block in the config, every message the rules do not claim goes to a local model through `../common/analyze.py`: an OpenAI-compatible chat endpoint, LM Studio at `http://localhost:1234/v1` by default, with `name` left null to use whatever model the server lists first. The model sees the subject and the text, the bodies the ship already knows (id, name, aliases, read once per run from the state view) and the schema's attribute names, and answers bodies, observations and actions in orrery's shapes. Everything it answers is validated before it is sent: ids well formed, subjects known or created in the same answer, values bounded, times parseable; what fails is dropped with a note on the run's log. `--no-model` runs the rules alone; a server that is down stops the run with a message rather than silently skipping the model.
+
+The rules run first and a claimed message never reaches the model, so a shipping notice is always the same three rows however the model feels that day. Money and health facts belong to the attributes `income` and `health` and nowhere else; the prompt says so and the owner's `sensitive` list keeps them from every key.
+
+## Filtering
+
+Spam usually never reaches the reader: it sits in the Junk folder and the reader opens one folder, `INBOX` unless the config says otherwise. What does reach it is newsletters, notifications and marketing, and the `filters` block in the config keeps them away from the model:
+
+```json
+"filters": {
+  "from": ["noreply@", "no-reply@", "newsletter", "marketing@", "notifications@"],
+  "subject": ["unsubscribe", "% off", "webinar"],
+  "only_from": []
+}
+```
+
+`from` and `subject` are substrings, matched without regard to case, against the sender's name and address and against the subject; one match skips the message. `only_from`, when it is not empty, is an allowlist: only senders matching one of its entries reach the model, which is the strictest and simplest setting for a personal world model, where the mail that matters comes from a few dozen people. Bulk mail with a `List-Unsubscribe` header or `Precedence: bulk` is skipped before any of this.
+
+The transactional rules run before the filters, so a shipping notice or an invoice from a `noreply@` address still lands. A skipped message is logged with the entry that matched, so a dry run over a month of mail is the way to tune the lists: run it with `--no-model` first, which takes seconds instead of hours, and read the log.
+
+## Backfill
+
+To build state from what already happened, run the reader over the past:
+
+```bash
+MAIL_PASSWORD=... ORRERY_TOKEN=... python3 reader.py --config config.json --months 6
+MAIL_PASSWORD=... ORRERY_TOKEN=... python3 reader.py --config config.json --since 2026-01-01 --limit 5000
+```
+
+A backfill reads every message in the folder from that day on, oldest first, through the rules and the model, and keeps its own place in `state.json` (under `backfill`) so an interrupted run resumes where it stopped instead of asking the model again. It only ever moves the live cursor forward, so a later live run does not re-read what the backfill covered. `at` is each message's own date, so the facts land in the past where they belong and the timeline reads as it happened. With `--dry-run` it prints what it would send without confirming anything, which is the way to judge the model on your own mail before the first real run.
+
+A local model takes seconds per message, so six months of a busy inbox is hours; the progress line shows `n/total`, the message date and what happened.
+
 ## The key
 
 Mint it on the ship with the owner cookie. The scope is the four kinds the rules write and the one action kind.

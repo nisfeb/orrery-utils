@@ -84,6 +84,44 @@ class Grammar(unittest.TestCase):
         self.assertEqual(bot.parse_value('Route 9'), 'Route 9')
 
 
+class WithModel(unittest.TestCase):
+    """Free text from a known person goes to the analyst; its answer lands
+    with the message's pointer as the source."""
+
+    class KnowingShip(bot.NoShip):
+        def state(self):
+            return {'me': 'person/me', 'bodies': [{'id': 'person/me', 'name': 'me', 'aliases': ['I']},
+                                                  {'id': 'person/sarah', 'name': 'Sarah', 'aliases': ['wife']}],
+                    'schema': {'kinds': {'person': {'attrs': ['status', 'location']}}}}
+
+    def setUp(self):
+        bot.CONTEXT = None
+        bot.MODEL = bot.analyze.FakeModel(json.dumps({
+            'bodies': [{'id': 'place/johns-machine-shop', 'name': "John's Machine Shop"}],
+            'observations': [{'subject': 'person/me', 'attr': 'location', 'value': {'ref': 'place/home'}, 'conf': 80,
+                              'message': 'telegram/1001/13'}],
+            'actions': []}))
+
+    def tearDown(self):
+        bot.MODEL = None
+        bot.CONTEXT = None
+
+    def test_free_text_becomes_facts(self):
+        out = outcomes(load('config.json'), self.KnowingShip())
+        facts = out['508']
+        self.assertEqual([b['id'] for b in facts['bodies']], ['place/johns-machine-shop'])
+        o = facts['observations'][0]
+        self.assertEqual((o['subject'], o['attr'], o['value'], o['conf'], o['at']),
+                         ('person/me', 'location', {'ref': 'place/home'}, 80, '2026-09-17T16:10:00Z'))
+        self.assertEqual(o['source'], {'kind': 'chat', 'id': 'telegram/1001/13'})
+        self.assertIn('home now, car is at the shop', bot.MODEL.asked[0])
+        self.assertIn('person/sarah | Sarah | wife', bot.MODEL.asked[0])
+
+    def test_commands_never_reach_the_model(self):
+        outcomes(load('config.json'), self.KnowingShip())
+        self.assertEqual(len(bot.MODEL.asked), 1)
+
+
 class Actions(unittest.TestCase):
     class FakeShip(bot.NoShip):
         """The open list, the answer a claim gets, and what the read back

@@ -1,0 +1,20 @@
+{
+ "about": "This page lists all messages",
+ "chats": {"about": "This page lists all chats", "list": [
+  {"name": "Sarah", "type": "personal_chat", "id": 2002, "messages": [
+   {"id": 100, "type": "message", "date": "2026-03-01T09:00:00", "date_unixtime": "1772355600", "from": "Me", "from_id": "user1001", "text": "old news from march"},
+   {"id": 201, "type": "message", "date": "2026-09-16T22:05:00", "date_unixtime": "1789596300", "from": "Me", "from_id": "user1001", "text": "car died on route 9, stranded waiting for a tow"},
+   {"id": 202, "type": "message", "date": "2026-09-16T22:07:00", "date_unixtime": "1789596420", "from": "Sarah", "from_id": "user2002", "text": ["oh no. want me to come get you? ", {"type": "link", "text": "https://maps.example/route9"}]},
+   {"id": 203, "type": "message", "date": "2026-09-16T23:40:00", "date_unixtime": "1789602000", "from": "Me", "from_id": "user1001", "text": "tow guy is here, taking it to john's machine shop"},
+   {"id": 204, "type": "service", "date": "2026-09-16T23:41:00", "date_unixtime": "1789602060", "actor": "Sarah", "action": "phone_call"},
+   {"id": 205, "type": "message", "date": "2026-09-17T02:10:00", "date_unixtime": "1789611000", "from": "Me", "from_id": "user1001", "text": "home. left the car at john's overnight, they'll look at it in the morning"}
+  ]},
+  {"name": "family", "type": "private_group", "id": 200, "messages": [
+   {"id": 40, "type": "message", "date": "2026-09-17T08:00:00", "date_unixtime": "1789632000", "from": "Stranger", "from_id": "user3003", "text": "anyone up for dinner friday?"},
+   {"id": 41, "type": "message", "date": "2026-09-17T08:05:00", "date_unixtime": "1789632300", "from": "Sarah", "from_id": "user2002", "text": "yes, the usual place at 8"}
+  ]},
+  {"name": "Deals Channel", "type": "public_channel", "id": 777, "messages": [
+   {"id": 9, "type": "message", "date": "2026-09-17T08:05:00", "date_unixtime": "1789632300", "from": "Deals", "from_id": "channel777", "text": "50% off everything"}
+  ]}
+ ]}
+}
