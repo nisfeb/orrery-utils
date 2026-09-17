@@ -168,6 +168,7 @@ def plan_activities(state, min_occurrences=3, reader=None):
         location = None
         participants = []
         now = datetime.now(timezone.utc).replace(microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
+        ahead = []
         for m in members:
             attrs = m.get('attrs') or {}
             started = value_of(attrs, 'started')
@@ -187,22 +188,26 @@ def plan_activities(state, min_occurrences=3, reader=None):
                 at = analyze.iso_or_none(started)
                 starts.append(at)
                 src = {'kind': 'reconcile', 'id': 'reconcile/' + m['id']}
-                #  last: when it happened, kept until a later occurrence supersedes it
+                #  last: when it happened; a future occurrence's row folds in once
+                #  its time has passed, so last keeps itself current
                 obs.append({'subject': aid, 'attr': 'last', 'value': at, 'at': at, 'conf': 90, 'source': src})
                 if at > now:
-                    #  next: an occurrence still ahead, gone once it has ended
-                    row = {'subject': aid, 'attr': 'next', 'value': at, 'at': now, 'conf': 90, 'source': src}
-                    if isinstance(ended, str) and analyze.iso_or_none(ended):
-                        row['until'] = analyze.iso_or_none(ended)
-                    obs.append(row)
+                    ahead.append((at, analyze.iso_or_none(ended) if isinstance(ended, str) else None, src))
             loc = value_of(attrs, 'location')
             if isinstance(loc, str) and loc and not location:
                 location = loc
             for p in value_of(attrs, 'participants') or []:
                 if isinstance(p, dict) and p.get('ref') and p['ref'] not in participants:
                     participants.append(p['ref'])
+        if ahead:
+            #  next: the nearest occurrence still ahead, one row, gone once it has ended
+            at, ended, src = min(ahead)
+            row = {'subject': aid, 'attr': 'next', 'value': at, 'at': now, 'conf': 90, 'source': src}
+            if ended:
+                row['until'] = ended
+            obs.append(row)
         first = min(starts) if starts else None
-        base_at = first or datetime.now(timezone.utc).replace(microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
+        base_at = first or now
         src = {'kind': 'reconcile', 'id': members[0]['id']}
         obs.insert(0, {'subject': aid, 'attr': 'status', 'value': 'active', 'at': base_at, 'conf': 90, 'source': src})
         if location:
