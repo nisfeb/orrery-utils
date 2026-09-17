@@ -62,7 +62,7 @@ curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api
 
 1. Make a bot with BotFather and keep its token in `TELEGRAM_TOKEN`.
 2. For a group, add the bot and turn privacy mode off with BotFather (`/setprivacy`), or it sees only commands addressed to it.
-3. Find the Telegram user ids of the people who may talk to it and the ids of the chats it should listen in: run `python3 bot.py --config config.json --dry-run` and read the ignored senders and chats it prints.
+3. Find the ids, in two passes, because the chat test returns before the sender test: with `chats` empty, every message is ignored as `chat <id> is not in chats` and you learn only chat ids; fill `chats` in, run again, and the same messages now report `sender <id> is not in people` and give you the user ids. Both passes are `python3 bot.py --config config.json --dry-run`, which confirms nothing, so the same updates come back each time. Set `"enabled": false` in the `model` block to do this without LM Studio running; `bot.py` has no `--no-model` flag.
 4. Map them in `config.json`: `people` is Telegram user id to body id; `chats` is the chats it listens in. A message from anyone else, or in any other chat, is ignored and logged.
 
 ```json
@@ -101,7 +101,7 @@ Every message, every sender's name, the bot token. The ship gets the facts the g
 
 ## Limits
 
-- Commands only, until a model sits in `classify_with_model`. The grammar is deliberate so that what lands on the ship is what someone meant to say.
+- The grammar is deliberate, so what lands on the ship from a command is what someone meant to say. Free text is only as good as the local model, and reaches the ship only when a `model` block is enabled.
 - `/obs` with a name needs the ship to resolve it; a dry run cannot, and says so.
 - One bot, one config, one ship. A family with two ships runs two bots, or shares bodies between ships the orrery way.
 - `at` is the message's time, so a message stamped ahead of the ship's clock is a future fact on the ship until that time passes.

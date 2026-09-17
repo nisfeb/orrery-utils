@@ -157,7 +157,7 @@ def run(argv=None):
         except RuntimeError as e:
             raise SystemExit(str(e))
     if args.dry_run:
-        ship = bot.NoShip()
+        ship = bot.dry_ship(cfg)
     else:
         token = os.environ.get(cfg['orrery'].get('token_env', 'ORRERY_TOKEN'), '')
         if not token:

@@ -2,3 +2,7 @@
 */state.json
 */state.json.tmp
 __pycache__/
+
+.env
+.env.*
+/jar

@@ -41,7 +41,8 @@ ANSWER = {
          'message': 'telegram/1001/10'},
         {'subject': 'person/nobody', 'attr': 'status', 'value': 'x', 'message': 'telegram/1001/10'},
         {'subject': 'person/me', 'attr': 'Bad Attr', 'value': 'x', 'message': 'telegram/1001/10'},
-        {'subject': 'person/me', 'attr': 'mood', 'value': 'tired', 'conf': 'high', 'message': 'not-a-message'},
+        {'subject': 'person/me', 'attr': 'mood', 'value': 'tired', 'message': 'telegram/1001/10'},
+        {'subject': 'person/me', 'attr': 'location', 'value': 'Route 9', 'conf': 'high', 'message': 'not-a-message'},
     ],
     'actions': [
         {'kind': 'task', 'title': 'Call the shop about the Subaru', 'about': ['thing/subaru', 'place/johns-machine-shop', 'org/nobody'],
@@ -65,6 +66,9 @@ class Validation(unittest.TestCase):
     def test_observations(self):
         rows = {(o['subject'], o['attr']): o for o in self.facts['observations']}
         self.assertEqual(len(rows), 5)
+        #  person/me.mood is gone: the schema speaks for person and does not list it
+        self.assertNotIn(('person/me', 'mood'), rows)
+        self.assertIn('dropped person/me.mood: not an attribute of person', self.facts['notes'])
         me = rows[('person/me', 'status')]
         self.assertEqual((me['at'], me['until'], me['conf'], me['message']),
                          ('2026-09-16T22:05:00Z', '2026-09-17T02:00:00Z', 90, 'telegram/1001/10'))
@@ -72,8 +76,9 @@ class Validation(unittest.TestCase):
         self.assertEqual(rows[('thing/subaru', 'status')]['conf'], 70)
         self.assertEqual(rows[('thing/subaru', 'status')]['at'], '2026-09-16T23:40:00Z')
         self.assertEqual(rows[('situation/2026-09-16-breakdown', 'participants')]['value'], {'ref': 'person/me'})
-        mood = rows[('person/me', 'mood')]
-        self.assertEqual((mood['conf'], mood['message'], mood['at']), (70, 'telegram/1001/11', '2026-09-16T23:40:00Z'))
+        #  a bad conf and an unknown message id still fall back, on a listed attr
+        back = rows[('person/me', 'location')]
+        self.assertEqual((back['conf'], back['message'], back['at']), (70, 'telegram/1001/11', '2026-09-16T23:40:00Z'))
         notes = ' '.join(self.facts['notes'])
         self.assertIn('unknown body: person/nobody', notes)
         self.assertIn('bad attr: bad attr', notes)
@@ -100,45 +105,45 @@ class Association(unittest.TestCase):
 
     def test_normalised_titles(self):
         n = analyze.normalize_title
-        self.assertEqual(n('Reminder: Ballet @ Wed Sep 16, 2026 4:45pm'), 'ballet')
-        self.assertEqual(n('Ballet'), 'ballet')
-        self.assertEqual(n('Adelaide- Ballet/Tap'), 'adelaide ballet/tap')
-        self.assertNotEqual(n('Adelaide- Ballet/Tap'), n('Ballet'))
-        self.assertEqual(n('Invitation: Confession 2026-09-20'), 'confession')
+        self.assertEqual(n('Reminder: Pottery @ Thu May 14, 2026 6:00pm'), 'pottery')
+        self.assertEqual(n('Pottery'), 'pottery')
+        self.assertEqual(n('Robin- Pottery/Wheel'), 'robin pottery/wheel')
+        self.assertNotEqual(n('Robin- Pottery/Wheel'), n('Pottery'))
+        self.assertEqual(n('Invitation: Book Club 2026-05-16'), 'book club')
 
     def test_same_person(self):
-        self.assertTrue(analyze.same_person('Alice', 'Alice Baker'))
-        self.assertTrue(analyze.same_person('alice egan', 'Alice'))
-        self.assertFalse(analyze.same_person('Alice', 'Andrew Baker'))
-        self.assertFalse(analyze.same_person('', 'Alice'))
-        self.assertFalse(analyze.same_person('wife', 'owner wife'))
-        self.assertFalse(analyze.same_person('Baker', 'Alice Baker'))
-        self.assertTrue(analyze.same_person('Alice Baker', 'Alice O Baker'))
+        self.assertTrue(analyze.same_person('Dana', 'Dana Quill'))
+        self.assertTrue(analyze.same_person('dana quill', 'Dana'))
+        self.assertFalse(analyze.same_person('Dana', 'Daniel Quill'))
+        self.assertFalse(analyze.same_person('', 'Dana'))
+        self.assertFalse(analyze.same_person('wife', 'dana wife'))
+        self.assertFalse(analyze.same_person('Quill', 'Dana Quill'))
+        self.assertTrue(analyze.same_person('Dana Quill', 'Dana O Quill'))
 
     def test_twins_fold_into_existing_bodies(self):
-        context = {'bodies': [{'id': 'person/alice', 'name': 'Alice', 'aliases': ['wife']},
-                              {'id': 'activity/ballet', 'name': 'Ballet', 'aliases': []},
+        context = {'bodies': [{'id': 'person/dana', 'name': 'Dana', 'aliases': ['wife']},
+                              {'id': 'activity/pottery', 'name': 'Pottery', 'aliases': []},
                               {'id': 'person/me', 'name': 'me', 'aliases': []}],
                    'attrs': {}, 'me': 'person/me', 'channel': 'mail', 'action_kinds': ['task']}
-        answer = {'bodies': [{'id': 'person/alice-baker', 'name': 'Alice Baker'},
-                             {'id': 'situation/ballet-sep-16', 'name': 'Reminder: Ballet @ Sep 16, 4:45pm'},
-                             {'id': 'situation/ballet-sep-18', 'name': 'Ballet'},
-                             {'id': 'activity/confession', 'name': 'Confession'},
-                             {'id': 'situation/confession-2', 'name': 'Reminder: Confession'}],
-                  'observations': [{'subject': 'person/alice-baker', 'attr': 'email', 'value': 'a@x.example', 'message': 'm1'},
-                                   {'subject': 'situation/ballet-sep-16', 'attr': 'last', 'value': '2026-09-16T20:45:00Z', 'message': 'm1'},
-                                   {'subject': 'situation/confession-2', 'attr': 'last', 'value': '2026-09-19T14:00:00Z', 'message': 'm1'},
-                                   {'subject': 'person/me', 'attr': 'spouse', 'value': {'ref': 'person/alice-baker'}, 'message': 'm1'}],
-                  'actions': [{'kind': 'task', 'title': 'Pay Alice', 'about': ['person/alice-baker', 'person/alice'], 'message': 'm1'}]}
+        answer = {'bodies': [{'id': 'person/dana-quill', 'name': 'Dana Quill'},
+                             {'id': 'situation/pottery-may-14', 'name': 'Reminder: Pottery @ May 14, 6:00pm'},
+                             {'id': 'situation/pottery-may-16', 'name': 'Pottery'},
+                             {'id': 'activity/book-club', 'name': 'Book Club'},
+                             {'id': 'situation/book-club-2', 'name': 'Reminder: Book Club'}],
+                  'observations': [{'subject': 'person/dana-quill', 'attr': 'email', 'value': 'a@x.example', 'message': 'm1'},
+                                   {'subject': 'situation/pottery-may-14', 'attr': 'last', 'value': '2026-05-14T22:00:00Z', 'message': 'm1'},
+                                   {'subject': 'situation/book-club-2', 'attr': 'last', 'value': '2026-05-16T15:00:00Z', 'message': 'm1'},
+                                   {'subject': 'person/me', 'attr': 'spouse', 'value': {'ref': 'person/dana-quill'}, 'message': 'm1'}],
+                  'actions': [{'kind': 'task', 'title': 'Pay Dana', 'about': ['person/dana-quill', 'person/dana'], 'message': 'm1'}]}
         facts = analyze.validate(answer, [{'id': 'm1', 'at': '2026-09-16T12:00:00Z', 'who': 'x', 'text': ''}], context)
-        self.assertEqual([b['id'] for b in facts['bodies']], ['activity/confession'])
+        self.assertEqual([b['id'] for b in facts['bodies']], ['activity/book-club'])
         subjects = [(o['subject'], o['attr']) for o in facts['observations']]
-        self.assertEqual(subjects, [('person/alice', 'email'), ('activity/ballet', 'last'),
-                                    ('activity/confession', 'last'), ('person/me', 'spouse')])
-        self.assertEqual(facts['observations'][3]['value'], {'ref': 'person/alice'})
-        self.assertEqual(facts['actions'][0]['about'], ['person/alice'])
-        self.assertIn('person/alice-baker is person/alice', facts['notes'])
-        self.assertIn('situation/ballet-sep-18 is activity/ballet', facts['notes'])
+        self.assertEqual(subjects, [('person/dana', 'email'), ('activity/pottery', 'last'),
+                                    ('activity/book-club', 'last'), ('person/me', 'spouse')])
+        self.assertEqual(facts['observations'][3]['value'], {'ref': 'person/dana'})
+        self.assertEqual(facts['actions'][0]['about'], ['person/dana'])
+        self.assertIn('person/dana-quill is person/dana', facts['notes'])
+        self.assertIn('situation/pottery-may-16 is activity/pottery', facts['notes'])
 
 
 class Answers(unittest.TestCase):
@@ -173,3 +178,48 @@ class Answers(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Vocabulary(unittest.TestCase):
+    """A kind must be real, and a kind the schema speaks for keeps to its words."""
+
+    def run_one(self, answer, context=None):
+        return analyze.validate(answer, [{'id': 'm1', 'at': '2026-05-14T12:00:00Z', 'who': 'person/me', 'text': ''}],
+                                context or CONTEXT)
+
+    def test_the_prompts_own_placeholder_is_not_a_body(self):
+        #  "kind/slug" is the literal example in the prompt and matches BID_RE
+        self.assertTrue(analyze.BID_RE.match('kind/slug'))
+        facts = self.run_one({'bodies': [{'id': 'kind/slug', 'name': 'whatever'}],
+                              'observations': [{'subject': 'kind/slug', 'attr': 'status', 'value': 'open', 'message': 'm1'}],
+                              'actions': []})
+        self.assertEqual(facts['bodies'], [])
+        self.assertEqual(facts['observations'], [])
+        self.assertIn('dropped body of an unknown kind: kind/slug', facts['notes'])
+
+    def test_an_invented_attr_on_a_listed_kind_is_dropped(self):
+        facts = self.run_one({'bodies': [], 'actions': [], 'observations': [
+            {'subject': 'person/me', 'attr': 'soreness', 'value': True, 'message': 'm1'},
+            {'subject': 'person/me', 'attr': 'status', 'value': 'resting', 'message': 'm1'}]})
+        self.assertEqual([(o['subject'], o['attr']) for o in facts['observations']], [('person/me', 'status')])
+        self.assertIn('dropped person/me.soreness: not an attribute of person', facts['notes'])
+
+    def test_a_redacted_sensitive_attr_is_dropped_with_its_own_reason(self):
+        #  a key whose ship marks health sensitive is never served it in the schema,
+        #  so it falls to the same rule as any unlisted name, with a clearer note
+        facts = self.run_one({'bodies': [], 'actions': [], 'observations': [
+            {'subject': 'person/me', 'attr': 'health', 'value': 'recovering', 'message': 'm1'}]})
+        self.assertEqual(facts['observations'], [])
+        self.assertIn("dropped person/me.health: the owner's policy keeps it from keys", facts['notes'])
+
+    def test_a_sensitive_attr_the_schema_does_serve_is_kept(self):
+        ctx = dict(CONTEXT, attrs=dict(CONTEXT['attrs'], person=['status', 'location', 'health']))
+        facts = self.run_one({'bodies': [], 'actions': [], 'observations': [
+            {'subject': 'person/me', 'attr': 'health', 'value': 'recovering', 'message': 'm1'}]}, ctx)
+        self.assertEqual([o['attr'] for o in facts['observations']], ['health'])
+
+    def test_a_kind_the_schema_is_silent_on_takes_any_attr(self):
+        context = dict(CONTEXT, bodies=CONTEXT['bodies'] + [{'id': 'activity/pottery', 'name': 'Pottery', 'aliases': []}])
+        facts = self.run_one({'bodies': [], 'actions': [], 'observations': [
+            {'subject': 'activity/pottery', 'attr': 'cadence', 'value': 'weekly', 'message': 'm1'}]}, context)
+        self.assertEqual([(o['subject'], o['attr']) for o in facts['observations']], [('activity/pottery', 'cadence')])
