@@ -116,8 +116,9 @@ The message: headers, text, attachments, everything. Only the Message-ID crosses
 
 - English patterns. Other languages need their own rule text.
 - `--limit` is per folder, not per run: a run over twenty folders reads up to twenty times that many messages.
-- Filters are substrings, so a skip entry matches anywhere in the sender or subject. `newsletter` also skips
-  `tlmjaxnewsletter@gmail.com`. Prefer the longest substring that still catches what you mean.
+- Filters are substrings, so a skip entry matches anywhere in the sender or subject: `newsletter` also skips
+  an address like `townnewsletter@mail.example`, and `keeps.com` also skips `housekeeps.com`. Prefer the
+  longest substring that still catches what you mean, and check a candidate against a dry run before adding it.
 - An order without a number gets an id from the Message-ID, so a second mail about the same order without the number makes a second body. The number is in almost every shipping mail.
 - The `trip` rule takes the first date in the mail as the start. A confirmation that names a booking date before the travel date needs the model rule.
 - `at` comes from the `Date` header, so a message stamped ahead of the ship's clock is a future fact on the ship until that time passes. It lands, and it folds in when its time comes.

@@ -91,16 +91,21 @@ class Ship:
 
 
 class NoShip:
-    """A dry run never contacts the ship: reads answer nothing, writes print."""
+    """A dry run: writes print, reads go to the ship when one is given. Reading
+    is harmless and a dry run that cannot read validates against an empty
+    vocabulary, so it prints bodies and attributes a real run would drop."""
+
+    def __init__(self, reads=None):
+        self.reads = reads
 
     def resolve(self, q):
-        return []
+        return self.reads.resolve(q) if self.reads else []
 
     def body(self, bid):
-        return None
+        return self.reads.body(bid) if self.reads else None
 
     def state(self):
-        return {}
+        return self.reads.state() if self.reads else {}
 
     def observe(self, bodies, observations):
         print(json.dumps({'observe': {'bodies': bodies, 'observations': observations}}, indent=1))
@@ -109,6 +114,20 @@ class NoShip:
     def act(self, action):
         print(json.dumps({'act': action}, indent=1))
         return 200, None
+
+
+def dry_ship(cfg):
+    """The ship a dry run talks to. With a key in the environment its reads are
+    the real ship's, so what a dry run prints is judged against the same bodies
+    and schema a real run sees; without one it says so, because the difference
+    is silent otherwise."""
+    orrery = cfg.get('orrery') or {}
+    token = os.environ.get(orrery.get('token_env', 'ORRERY_TOKEN'), '')
+    if orrery.get('url') and token:
+        return NoShip(Ship(orrery['url'], token))
+    print('# dry run without a key: the ship is not read, so its bodies and schema are unknown '
+          'and this prints more than a real run would send', file=sys.stderr)
+    return NoShip()
 
 
 # ==  messages
@@ -591,7 +610,7 @@ def run(argv=None):
             if not (args.eml and args.dry_run):
                 raise
     if args.dry_run:
-        ship = NoShip()
+        ship = dry_ship(cfg)
     else:
         token = os.environ.get(cfg['orrery'].get('token_env', 'ORRERY_TOKEN'), '')
         if not token:

@@ -6,7 +6,15 @@
 
 1. Builds a prompt from the messages (id, time, sender, text) and the context: the bodies the ship already knows (id, name, aliases), the schema's attribute names per kind, who the owner is, the channel, and the action kinds the caller may propose.
 2. Asks the model for one JSON object: `bodies` to create, `observations` (subject, attr, value, at, until, conf, and the message each one comes from) and `actions` (kind, title, about, due, message).
-3. Validates the answer before anything is sent: body ids well formed and new, subjects known or created in the same answer, attribute names lowercase, values a string under 2000 bytes, a number, a boolean, null or a `{"ref": "kind/slug"}`, times parseable and normalised to UTC, confidence 0 to 100, action kinds within what the caller allows. What fails is dropped with a note; a broken answer yields nothing but a note.
+3. Validates the answer before anything is sent: body ids well formed, of a real kind and new, subjects known or created in the same answer, attribute names lowercase, values a string under 2000 bytes, a number, a boolean, null or a `{"ref": "kind/slug"}`, times parseable and normalised to UTC, confidence 0 to 100, action kinds within what the caller allows. What fails is dropped with a note; a broken answer yields nothing but a note.
+
+Two of those checks exist because a model reaches for them anyway. `kind/slug` is the literal placeholder in
+the prompt's own shape and matches the id pattern, so the kind is checked against a list rather than a regex.
+And an observation on a kind the schema lists attributes for keeps to that vocabulary, because the owner's
+`sensitive` policy shields attributes by name: a health fact written to an invented `soreness` or `concern`
+would be readable by every key, so it is dropped and the prompt says to use `health` or `income`, which are
+allowed through even though the schema does not list them. A kind the schema is silent on, such as `activity`,
+still takes any short lowercase name.
 4. `to_batch` turns the facts into an observe batch and a list of actions with each row's `source` pointer set from its message id, the caller's source kind and nothing else.
 
 A message window is one conversation, oldest first: one mail, or a run of consecutive Telegram messages, so a reply can be read against what it answers.
@@ -36,7 +44,7 @@ The system prompt in `analyze.py` teaches the model the three shapes and the rul
 
 ## Association: twins the model makes anyway
 
-`validate` folds a new body into one the ship already has when they are the same thing: a `situation` or `activity` whose normalised title matches an existing one (prefixes like "Reminder:", dates, times and weekdays stripped, so "Reminder: Ballet @ Sep 16, 4:45pm" is `activity/ballet`), and a `person` whose name words are all contained in an existing person's name or alias, or the other way round ("Andrea Egan" is `person/andrea`; "Andrea" is not "Andrew Egan"). Subjects, references and `about` lists in the same answer follow the fold, and a note names the twin. The prompt says the same in words: an occurrence of a repeating event is an observation on one `activity` (`last` at the occurrence's start, `next` when known), never a body per occurrence, and a person is never an org. Money and health facts go to `income` and `health`, which orrery's starter schema names for a person and its starter policy lists as sensitive.
+`validate` folds a new body into one the ship already has when they are the same thing: a `situation` or `activity` whose normalised title matches an existing one (prefixes like "Reminder:", dates, times and weekdays stripped, so "Reminder: Pottery @ May 14, 6:00pm" is `activity/pottery`), and a `person` whose name words are all contained in an existing person's name or alias, or the other way round ("Dana Quill" is `person/dana`; "Dana" is not "Daniel Quill"). Subjects, references and `about` lists in the same answer follow the fold, and a note names the twin. The prompt says the same in words: an occurrence of a repeating event is an observation on one `activity` (`last` at the occurrence's start, `next` when known), never a body per occurrence, and a person is never an org. Money and health facts go to `income` and `health`, which orrery's starter schema names for a person and its starter policy lists as sensitive.
 
 ## reconcile.py: associating what the readers left apart
 

@@ -33,19 +33,27 @@ DEFAULT_URL = 'http://localhost:1234/v1'
 MAX_TEXT = 8000
 MAX_BODIES_IN_CONTEXT = 300
 BID_RE = re.compile(r'^[a-z0-9-]{1,24}/[a-z0-9-]{1,64}$')
+#  the kinds a body may have. BID_RE alone matches the prompt's own
+#  "kind/slug" placeholder, which a model copies verbatim often enough to matter
+KINDS = ('person', 'place', 'thing', 'org', 'situation', 'note', 'activity')
+#  where a health or money fact belongs. A ship that lists these in its schema
+#  takes them; one whose policy marks them sensitive redacts them from a key's
+#  schema, and then the rule below drops them like any other unlisted name.
+#  Named here only so the note says which of the two happened.
+SENSITIVE_ATTRS = ('health', 'income')
 ATTR_RE = re.compile(r'^[a-z0-9-]{1,48}$')
 
 SYSTEM = """You turn messages into facts for orrery, a model of one person's world.
 Three shapes exist.
-A body is something that exists: a person, place, thing, org, situation or note. Its id is kind/slug, lowercase letters, digits and hyphens, for example person/sarah, place/johns-machine-shop, thing/subaru, situation/2026-09-16-breakdown.
+A body is something that exists: a person, place, thing, org, situation, activity or note. Its id is kind/slug, lowercase letters, digits and hyphens, for example person/sarah, place/johns-machine-shop, thing/subaru, situation/2026-09-16-breakdown.
 An observation is one claim about one body: subject.attr = value, with when it became true. Values are a short string, a number, true or false, null (which clears the attribute), or {"ref": "kind/slug"} pointing at another body.
 An action is something to do: a task with a title, the bodies it is about, and an optional due time.
 Rules.
 Only state what the messages say or clearly imply. Never invent. When unsure, leave it out or lower the confidence.
 Use the existing bodies by id whenever a message refers to one of them, by name or alias. Create a new body only for a named person, place, thing or org, or for a situation (an event with participants) the messages describe.
-Use the attribute names listed for each kind when one fits; otherwise a short lowercase name.
+Use only the attribute names listed for that kind; an observation on any other name is dropped. When a kind has no attributes listed, use a short lowercase name. A health fact goes on "health" and a money fact on "income", never on a name of your own.
 A situation body carries status ("open" or "closed"), participants (one observation per participant, value {"ref": ...}), location, started and ended. A situation happens once: a breakdown, a birthday, a delivery.
-An activity is something that repeats: a class, a practice, a standing appointment, confession every Saturday. It is one body of kind activity, with schedule ("Tue/Thu 16:45"), cadence ("weekly"), location, participants and organizer. An occurrence of an activity is never a new body: write the activity's "last" = the start of that occurrence, with "at" = that start, and "next" = the start of the following one when the message says it. A calendar reminder or notification for a repeating event is an occurrence of an activity, not a situation.
+An activity is something that repeats: a class, a practice, a standing appointment, a weekly meeting. It is one body of kind activity, with schedule ("Mon/Wed 18:00"), cadence ("weekly"), location, participants and organizer. An occurrence of an activity is never a new body: write the activity's "last" = the start of that occurrence, with "at" = that start, and "next" = the start of the following one when the message says it. A calendar reminder or notification for a repeating event is an occurrence of an activity, not a situation.
 A person is never an org. A payment request, a reminder or a note from a person names a person body; reuse the existing person when the name or the address matches, even when only the first name is on record.
 "at" is when the fact became true, ISO 8601 UTC, and defaults to the message's time; set it only when the message says otherwise. "until" is when it will stop being true, when the message says so.
 "conf" is 0 to 100: 90 for a plain statement, 60 for an inference, 40 for a guess.
@@ -203,8 +211,8 @@ DATEISH_RE = re.compile(r'\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b|\b\d{1,2}(?:
 
 def normalize_title(text):
     """A title with its noise stripped: prefixes like Reminder:, dates, times
-    and weekdays, punctuation and case. "Reminder: Ballet @ Wed Sep 16, 4:45pm"
-    and "Ballet" normalise to the same key; "Adelaide- Ballet/Tap" stays its own."""
+    and weekdays, punctuation and case. "Reminder: Pottery @ Thu May 14, 6:00pm"
+    and "Pottery" normalise to the same key; "Robin- Pottery/Wheel" stays its own."""
     t = NOISE_RE.sub('', str(text or '').strip())
     t = NOISE_RE.sub('', t)
     t = DATEISH_RE.sub(' ', t)
@@ -229,8 +237,8 @@ ROLE_WORDS = {'me', 'i', 'wife', 'husband', 'mom', 'mum', 'dad', 'mother', 'fath
 
 def same_person(a, b):
     """Every word of the shorter name is in the longer one, and a one-word
-    name is a first name, not a role: "andrea" and "andrea egan" are one
-    person, "andrea" and "andrew egan" are not, and "wife" names nobody."""
+    name is a first name, not a role: "dana" and "dana quill" are one
+    person, "dana" and "daniel quill" are not, and "wife" names nobody."""
     ka, kb = person_key(a) - ROLE_WORDS, person_key(b) - ROLE_WORDS
     if not ka or not kb:
         return False
@@ -282,6 +290,9 @@ def validate(answer, messages, context):
         if not BID_RE.match(bid):
             notes.append('dropped body with a bad id: ' + bid)
             continue
+        if bid.split('/', 1)[0] not in KINDS:
+            notes.append('dropped body of an unknown kind: ' + bid)
+            continue
         if bid in known:
             continue
         name = str(b.get('name') or bid.split('/', 1)[1].replace('-', ' ')).strip()[:200]
@@ -311,6 +322,15 @@ def validate(answer, messages, context):
             continue
         if not ATTR_RE.match(attr):
             notes.append('dropped observation with a bad attr: ' + attr)
+            continue
+        kind = subject.split('/', 1)[0]
+        listed = (context.get('attrs') or {}).get(kind) or []
+        if listed and attr not in listed:
+            #  a kind the schema speaks for keeps to its vocabulary, so a health or
+            #  money fact cannot land on an invented name the owner's policy never sees
+            why = ("the owner's policy keeps it from keys" if attr in SENSITIVE_ATTRS
+                   else 'not an attribute of ' + kind)
+            notes.append('dropped %s.%s: %s' % (subject, attr, why))
             continue
         value = clean_value(o.get('value'), known)
         if isinstance(value, str) and value.startswith('!'):
