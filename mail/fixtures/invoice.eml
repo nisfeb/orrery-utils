@@ -1,0 +1,9 @@
+From: Utility Co <billing@utility.example>
+To: me@example.com
+Subject: Your invoice for September
+Date: Thu, 17 Sep 2026 09:15:00 +0000
+Message-ID: <inv-2026-09@utility.example>
+Content-Type: text/plain; charset=utf-8
+
+Your invoice is ready. Amount due: $142.50. Payment is due by September 30, 2026.
+View it online at https://utility.example/account

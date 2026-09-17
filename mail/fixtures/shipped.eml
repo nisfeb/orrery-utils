@@ -1,0 +1,11 @@
+From: Example Shop <orders@shop.example>
+To: me@example.com
+Subject: Your order 4471 has shipped
+Date: Wed, 17 Sep 2026 14:02:00 +0000
+Message-ID: <2b7f9c@shop.example>
+List-Unsubscribe: <mailto:unsub@shop.example>
+Content-Type: text/plain; charset=utf-8
+
+Good news: your order #4471 (standing desk, oak) has shipped and is on its way.
+Estimated arrival: Friday, September 19.
+Track it at https://shop.example/track/4471

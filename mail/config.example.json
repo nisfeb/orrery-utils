@@ -1,0 +1,5 @@
+{
+  "imap": {"host": "imap.example.com", "port": 993, "user": "me@example.com", "password_env": "MAIL_PASSWORD", "folder": "INBOX"},
+  "orrery": {"url": "https://your-ship.example", "token_env": "ORRERY_TOKEN"},
+  "state": "state.json"
+}

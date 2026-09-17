@@ -1,0 +1,17 @@
+From: Sarah <sarah@example.com>
+To: me@example.com
+Subject: Invitation: Dinner @ Fri Sep 19, 2026
+Date: Wed, 17 Sep 2026 18:30:00 +0000
+Message-ID: <inv-dinner@example.com>
+Content-Type: multipart/alternative; boundary="b1"
+
+--b1
+Content-Type: text/plain; charset=utf-8
+
+Sarah invited you to Dinner on Friday.
+--b1
+Content-Type: text/calendar; method=REQUEST
+
+BEGIN:VCALENDAR
+END:VCALENDAR
+--b1--

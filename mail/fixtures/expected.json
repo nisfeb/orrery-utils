@@ -1,0 +1,120 @@
+{
+ "shipped": {
+  "bodies": [
+   {
+    "id": "thing/order-4471",
+    "name": "Order 4471",
+    "aliases": [
+     "order 4471"
+    ]
+   }
+  ],
+  "observations": [
+   {
+    "subject": "thing/order-4471",
+    "attr": "status",
+    "value": "shipped",
+    "at": "2026-09-17T14:02:00Z",
+    "conf": 90,
+    "source": {
+     "kind": "mail",
+     "id": "<2b7f9c@shop.example>"
+    },
+    "until": "2026-09-20T00:00:00Z"
+   },
+   {
+    "subject": "thing/order-4471",
+    "attr": "location",
+    "value": "in transit",
+    "at": "2026-09-17T14:02:00Z",
+    "conf": 90,
+    "source": {
+     "kind": "mail",
+     "id": "<2b7f9c@shop.example>"
+    },
+    "until": "2026-09-20T00:00:00Z"
+   }
+  ],
+  "actions": []
+ },
+ "invoice": {
+  "bodies": [
+   {
+    "id": "org/utility-co",
+    "name": "Utility Co"
+   }
+  ],
+  "observations": [],
+  "actions": [
+   {
+    "kind": "task",
+    "title": "Pay Utility Co $142.50",
+    "about": [
+     "org/utility-co"
+    ],
+    "due": "2026-09-30T00:00:00Z"
+   }
+  ]
+ },
+ "trip": {
+  "bodies": [
+   {
+    "id": "situation/2026-10-03-trip",
+    "name": "Trip starting 2026-10-03"
+   }
+  ],
+  "observations": [
+   {
+    "subject": "situation/2026-10-03-trip",
+    "attr": "status",
+    "value": "open",
+    "at": "2026-09-17T16:20:00Z",
+    "conf": 80,
+    "source": {
+     "kind": "mail",
+     "id": "<bk-88213@flyair.example>"
+    }
+   },
+   {
+    "subject": "situation/2026-10-03-trip",
+    "attr": "participants",
+    "value": {
+     "ref": "person/me"
+    },
+    "at": "2026-09-17T16:20:00Z",
+    "conf": 80,
+    "source": {
+     "kind": "mail",
+     "id": "<bk-88213@flyair.example>"
+    }
+   },
+   {
+    "subject": "situation/2026-10-03-trip",
+    "attr": "started",
+    "value": "2026-10-03",
+    "at": "2026-09-17T16:20:00Z",
+    "conf": 80,
+    "source": {
+     "kind": "mail",
+     "id": "<bk-88213@flyair.example>"
+    }
+   }
+  ],
+  "actions": []
+ },
+ "newsletter": {
+  "bodies": [],
+  "observations": [],
+  "actions": []
+ },
+ "invitation": {
+  "bodies": [],
+  "observations": [],
+  "actions": []
+ },
+ "personal": {
+  "bodies": [],
+  "observations": [],
+  "actions": []
+ }
+}
