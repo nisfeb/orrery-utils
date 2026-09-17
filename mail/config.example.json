@@ -1,5 +1,5 @@
 {
-  "imap": {"host": "imap.example.com", "port": 993, "user": "me@example.com", "password_env": "MAIL_PASSWORD", "folder": "INBOX"},
+  "imap": {"host": "imap.example.com", "port": 993, "user": "me@example.com", "password_env": "MAIL_PASSWORD", "folder": "INBOX", "folders": ["INBOX"]},
   "orrery": {"url": "https://your-ship.example", "token_env": "ORRERY_TOKEN"},
   "model": {"url": "http://localhost:1234/v1", "name": null, "timeout": 180, "enabled": true},
   "filters": {

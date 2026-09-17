@@ -451,19 +451,31 @@ def save_state(path, state):
 
 
 def fetch_new(cfg, state, limit, since=None):
-    """(uid, raw) for messages after the cursor, oldest first, with the
-    folder name and its UIDVALIDITY. With since (a date), a backfill: every
-    message from that day on that the backfill has not handled yet, tracked
-    apart from the live cursor. Messages are read with BODY.PEEK so nothing
-    is marked seen."""
+    """Yield (messages, folder, uidvalidity) a folder at a time, oldest first,
+    where messages are (uid, raw) after that folder's cursor. The config's
+    "folders" list is read in order; "folder" is the fallback for one. Each
+    folder keeps its own cursor under its own name, so they advance apart and
+    limit applies to each. With since (a date), a backfill: every message from
+    that day on that the backfill has not handled yet, tracked apart from the
+    live cursor. Messages are read with BODY.PEEK so nothing is marked seen."""
     im = cfg['imap']
     password = os.environ.get(im.get('password_env', 'MAIL_PASSWORD'), '')
     conn = imaplib.IMAP4_SSL(im['host'], int(im.get('port', 993)))
     conn.login(im['user'], password)
-    folder = im.get('folder', 'INBOX')
-    ok, data = conn.select(folder, readonly=True)
-    if ok != 'OK':
-        raise SystemExit('cannot open folder ' + folder)
+    folders = im.get('folders') or [im.get('folder', 'INBOX')]
+    for folder in folders:
+        #  quoted: names like "Real Estate" and "Finance/Receipts" are not atoms
+        ok, data = conn.select('"%s"' % folder, readonly=True)
+        if ok != 'OK':
+            print('cannot open folder %s, skipping it' % folder, file=sys.stderr)
+            continue
+        yield _folder_batch(conn, state, limit, since, folder)
+    conn.logout()
+
+
+def _folder_batch(conn, state, limit, since, folder):
+    """The selected folder's share of the run: its cursor, its new uids, their
+    bytes. Split out only so fetch_new stays a readable loop over folders."""
     ok, validity = conn.response('UIDVALIDITY')
     validity = int(validity[0]) if validity and validity[0] else 0
     key = folder
@@ -487,7 +499,6 @@ def fetch_new(cfg, state, limit, since=None):
                 raw = p[1]
         if raw:
             out.append((uid, raw))
-    conn.logout()
     return out, key, validity
 
 
@@ -573,27 +584,32 @@ def run(argv=None):
 
     state_path = cfg.get('state', 'state.json')
     state = load_state(state_path)
-    msgs, key, validity = fetch_new(cfg, state, args.limit, since)
-    print('%d %s message(s) in %s' % (len(msgs), 'backfill' if since else 'new', key))
-    for n, (uid, raw) in enumerate(msgs, 1):
-        msg = parse(raw)
-        facts = classify(msg, ship)
-        print('#', '%d/%d' % (n, len(msgs)), uid, msg.date.strftime('%Y-%m-%d'), msg.id, '|',
-              ' ; '.join(facts.notes) or ('nothing' if facts.empty() else 'facts'))
-        if not facts.empty() and not send(ship, facts):
-            print('stopping before uid %d so the next run retries it' % uid, file=sys.stderr)
-            break
-        if not args.dry_run:
-            cur = state.get(key, {})
-            live = int(cur.get('last_uid', 0)) if cur.get('uidvalidity') == validity else 0
-            if since is None:
-                state[key] = {'uidvalidity': validity, 'last_uid': uid}
-            else:
-                #  a backfill keeps its own place and only ever moves the live cursor forward
-                state.setdefault('backfill', {})[key] = {'uidvalidity': validity, 'since': since.strftime('%Y-%m-%d'), 'last_uid': uid}
-                if uid > live:
+    for msgs, key, validity in fetch_new(cfg, state, args.limit, since):
+        print('%d %s message(s) in %s' % (len(msgs), 'backfill' if since else 'new', key))
+        refused = False
+        for n, (uid, raw) in enumerate(msgs, 1):
+            msg = parse(raw)
+            facts = classify(msg, ship)
+            print('#', '%d/%d' % (n, len(msgs)), uid, msg.date.strftime('%Y-%m-%d'), msg.id, '|',
+                  ' ; '.join(facts.notes) or ('nothing' if facts.empty() else 'facts'))
+            if not facts.empty() and not send(ship, facts):
+                print('stopping before uid %d so the next run retries it' % uid, file=sys.stderr)
+                refused = True
+                break
+            if not args.dry_run:
+                cur = state.get(key, {})
+                live = int(cur.get('last_uid', 0)) if cur.get('uidvalidity') == validity else 0
+                if since is None:
                     state[key] = {'uidvalidity': validity, 'last_uid': uid}
-            save_state(state_path, state)
+                else:
+                    #  a backfill keeps its own place and only ever moves the live cursor forward
+                    state.setdefault('backfill', {})[key] = {'uidvalidity': validity, 'since': since.strftime('%Y-%m-%d'), 'last_uid': uid}
+                    if uid > live:
+                        state[key] = {'uidvalidity': validity, 'last_uid': uid}
+                save_state(state_path, state)
+        if refused:
+            #  the ship refused: stop the whole run, not just this folder
+            break
     return 0
 
 

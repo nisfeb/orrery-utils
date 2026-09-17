@@ -30,7 +30,7 @@ The rules run first and a claimed message never reaches the model, so a shipping
 
 ## Filtering
 
-Spam usually never reaches the reader: it sits in the Junk folder and the reader opens one folder, `INBOX` unless the config says otherwise. What does reach it is newsletters, notifications and marketing, and the `filters` block in the config keeps them away from the model:
+Spam usually never reaches the reader: it sits in the Junk folder, and the reader opens only the folders the config lists. What does reach it is newsletters, notifications and marketing, and the `filters` block in the config keeps them away from the model:
 
 ```json
 "filters": {
@@ -76,11 +76,17 @@ Copy `config.example.json` to `config.json` (git ignores it) and fill it in. Sec
 
 ```json
 {
-  "imap": {"host": "imap.example.com", "port": 993, "user": "me@example.com", "password_env": "MAIL_PASSWORD", "folder": "INBOX"},
+  "imap": {"host": "imap.example.com", "port": 993, "user": "me@example.com", "password_env": "MAIL_PASSWORD",
+           "folder": "INBOX", "folders": ["INBOX", "Finance", "Finance/Receipts", "Real Estate"]},
   "orrery": {"url": "https://your-ship.example", "token_env": "ORRERY_TOKEN"},
   "state": "state.json"
 }
 ```
+
+`folders` is read in order and each folder keeps its own cursor in `state.json` under its own name, so they
+advance apart and a folder added later starts from its own beginning without disturbing the others. `folder`
+is the fallback when `folders` is absent. A folder that cannot be opened is named on stderr and skipped, so
+one wrong name does not stop the run.
 
 IMAP over TLS with a password or an app password. Providers that only allow OAuth need a bridge or an app password; that is outside this reader.
 
@@ -109,7 +115,9 @@ The message: headers, text, attachments, everything. Only the Message-ID crosses
 ## Limits
 
 - English patterns. Other languages need their own rule text.
-- One folder per run. Point the config at another folder for another run.
+- `--limit` is per folder, not per run: a run over twenty folders reads up to twenty times that many messages.
+- Filters are substrings, so a skip entry matches anywhere in the sender or subject. `newsletter` also skips
+  `tlmjaxnewsletter@gmail.com`. Prefer the longest substring that still catches what you mean.
 - An order without a number gets an id from the Message-ID, so a second mail about the same order without the number makes a second body. The number is in almost every shipping mail.
 - The `trip` rule takes the first date in the mail as the start. A confirmation that names a booking date before the travel date needs the model rule.
 - `at` comes from the `Date` header, so a message stamped ahead of the ship's clock is a future fact on the ship until that time passes. It lands, and it folds in when its time comes.
