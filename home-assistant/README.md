@@ -27,11 +27,11 @@ The assistant proposes an action of kind `home`:
  "payload": {"service": "light.turn_on", "entity_id": "light.porch", "data": {"brightness": 120}}}
 ```
 
-The owner approves it (keep `home` off the policy's `auto` list). The client polls approved actions, keeps the ones of kind `home`, claims each one for ten minutes before it acts, checks the payload against `allow`, calls the service with `entity_id` and `data`, and reports `done`, or `failed` with the reason. A claim the ship refuses means another client holds that action, so this client skips it for the pass and never calls the service.
+The owner approves it (keep `home` off the policy's `auto` list). The client polls the open actions, keeps the ones of kind `home` that are approved or claimed, claims each one for ten minutes before it acts, checks the payload against `allow`, calls the service with `entity_id` and `data`, and reports `done`, or `failed` with the reason. A claim the ship refuses means another client holds that action, so this client skips it for the pass and never calls the service. The full protocol, poll open, claim, read back, act, report, is in the root README under Actions out.
 
 `allow` is a list of patterns matched against `"<service> <entity_id>"`: `"light.* light.*"` lets any light service run on any light; `"switch.turn_off switch.*"` lets switches be turned off but not on; `"climate.set_temperature climate.living_room"` names one thing exactly. An empty list runs nothing. A payload that does not match fails with a note saying what to add. Nothing in this client unlocks a door unless you write `lock.unlock` into the list yourself.
 
-An action is executed once. Its id goes into `state.json` after the report, and a run that finds it approved again skips it.
+An action is executed once. Its id goes into `state.json` after the report, and a run that finds it open again skips it.
 
 ## The key
 

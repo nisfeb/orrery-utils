@@ -90,17 +90,32 @@ class Mapping(unittest.TestCase):
 
 
 class FakeShip(client.NoShip):
-    def __init__(self, approved, claim=200):
-        self.approved = approved
+    """The open list, the answer a claim gets, and what the read back sees.
+
+    reads is a list of answers to actions('claimed'), one per read; with
+    none given, every claim of ours lands at once."""
+
+    def __init__(self, open_actions, claim=200, by='home', reads=None):
+        self.open = open_actions
         self.claim = claim
+        self.by = by
+        self.reads = reads
         self.moves = []
 
     def actions(self, status):
-        return self.approved if status == 'approved' else []
+        if status == 'open':
+            return self.open
+        if status != 'claimed':
+            return []
+        if self.reads is None:
+            return [{'id': aid, 'history': [{'status': 'claimed', 'by': self.by}]}
+                    for aid, st, _ in self.moves if st == 'claimed']
+        return self.reads.pop(0) if self.reads else []
 
     def move(self, aid, status, note=''):
         self.moves.append((aid, status, note))
-        return (self.claim if status == 'claimed' else 200), None
+        code = self.claim if status == 'claimed' else 200
+        return code, {'id': aid, 'status': status, 'by': self.by, 'ok': True}
 
 
 class FakeHass(client.NoHass):
@@ -113,9 +128,15 @@ class FakeHass(client.NoHass):
         return self.ok, '' if self.ok else 'home assistant answered 500: boom'
 
 
+def claimed_by(aid, who):
+    return [{'id': aid, 'history': [{'status': 'approved', 'by': 'user'}, {'status': 'claimed', 'by': who}]}]
+
+
 class Executor(unittest.TestCase):
     def setUp(self):
         self.cfg = load('mapping.json')
+        client.CLAIM_PAUSE = 0
+        client.CLAIM_READS = 5
 
     def test_allowlist(self):
         ok = {'service': 'light.turn_on', 'entity_id': 'light.porch', 'data': {'brightness': 120}}
@@ -128,9 +149,10 @@ class Executor(unittest.TestCase):
 
     def test_runs_allowed_and_fails_the_rest(self):
         ship = FakeShip([
-            {'id': 'a1', 'kind': 'home', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}},
-            {'id': 'a2', 'kind': 'home', 'payload': {'service': 'lock.unlock', 'entity_id': 'lock.front_door'}},
-            {'id': 'a3', 'kind': 'task', 'payload': {}},
+            {'id': 'a1', 'kind': 'home', 'status': 'approved', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}},
+            {'id': 'a2', 'kind': 'home', 'status': 'approved', 'payload': {'service': 'lock.unlock', 'entity_id': 'lock.front_door'}},
+            {'id': 'a3', 'kind': 'task', 'status': 'approved', 'payload': {}},
+            {'id': 'a4', 'kind': 'home', 'status': 'proposed', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}},
         ])
         hass = FakeHass()
         state = {}
@@ -142,7 +164,7 @@ class Executor(unittest.TestCase):
         self.assertEqual(state['executed'], ['a1', 'a2'])
 
     def test_service_failure_is_reported_once(self):
-        ship = FakeShip([{'id': 'a1', 'kind': 'home', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}}])
+        ship = FakeShip([{'id': 'a1', 'kind': 'home', 'status': 'approved', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}}])
         hass = FakeHass(ok=False)
         state = {}
         client.execute(self.cfg, ship, hass, state)
@@ -151,13 +173,58 @@ class Executor(unittest.TestCase):
         self.assertEqual(len(hass.calls), 1)
 
     def test_a_refused_claim_leaves_the_action_alone(self):
-        ship = FakeShip([{'id': 'a1', 'kind': 'home', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}}], claim=409)
+        ship = FakeShip([{'id': 'a1', 'kind': 'home', 'status': 'approved', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}}], claim=409)
         hass = FakeHass()
         state = {}
         client.execute(self.cfg, ship, hass, state)
         self.assertEqual(hass.calls, [])
         self.assertEqual([m[1] for m in ship.moves], ['claimed'])
         self.assertEqual(state['executed'], [])
+
+    def test_a_claim_another_client_won_is_not_acted_on(self):
+        ship = FakeShip([{'id': 'a1', 'kind': 'home', 'status': 'approved', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}}],
+                        reads=[claimed_by('a1', 'other')])
+        hass = FakeHass()
+        state = {}
+        client.execute(self.cfg, ship, hass, state)
+        self.assertEqual(hass.calls, [])
+        self.assertEqual([m[1] for m in ship.moves], ['claimed'])
+        self.assertEqual(state['executed'], [])
+
+    def test_a_slow_writer_is_read_again(self):
+        ship = FakeShip([{'id': 'a1', 'kind': 'home', 'status': 'approved', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}}],
+                        reads=[[], claimed_by('a1', 'home')])
+        hass = FakeHass()
+        state = {}
+        client.execute(self.cfg, ship, hass, state)
+        self.assertEqual(hass.calls, [('light.turn_on', {'entity_id': 'light.porch'})])
+        self.assertEqual([m[:2] for m in ship.moves], [('a1', 'claimed'), ('a1', 'done')])
+        self.assertEqual(state['executed'], ['a1'])
+
+    def test_a_claim_that_never_lands_is_skipped(self):
+        ship = FakeShip([{'id': 'a1', 'kind': 'home', 'status': 'approved', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}}],
+                        reads=[[], [], [], [], []])
+        hass = FakeHass()
+        state = {}
+        client.execute(self.cfg, ship, hass, state)
+        self.assertEqual(hass.calls, [])
+        self.assertEqual([m[1] for m in ship.moves], ['claimed'])
+        self.assertEqual(state['executed'], [])
+
+    def test_an_abandoned_claim_is_taken_again(self):
+        live = FakeShip([{'id': 'a1', 'kind': 'home', 'status': 'claimed', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}}], claim=409)
+        hass = FakeHass()
+        state = {}
+        client.execute(self.cfg, live, hass, state)
+        self.assertEqual(hass.calls, [])
+        self.assertEqual([m[1] for m in live.moves], ['claimed'])
+        self.assertEqual(state['executed'], [])
+        expired = FakeShip([{'id': 'a1', 'kind': 'home', 'status': 'claimed', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}}])
+        state = {}
+        client.execute(self.cfg, expired, hass, state)
+        self.assertEqual(hass.calls, [('light.turn_on', {'entity_id': 'light.porch'})])
+        self.assertEqual([m[:2] for m in expired.moves], [('a1', 'claimed'), ('a1', 'done')])
+        self.assertEqual(state['executed'], ['a1'])
 
 
 if __name__ == '__main__':

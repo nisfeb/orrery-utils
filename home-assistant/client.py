@@ -257,6 +257,35 @@ def map_states(cfg, states, state):
 SERVICE_RE = re.compile(r'^[a-z_]+\.[a-z_]+$')
 ENTITY_RE = re.compile(r'^[a-z_]+\.[a-z0-9_]+$')
 
+#  a claim answers before the writer applies it, so the claim is read
+#  back a few times before it is given up on
+CLAIM_READS = 5
+CLAIM_PAUSE = 0.2
+
+
+def claimant(a):
+    """The by of the last claimed step in an action's history, or ''."""
+    who = ''
+    for h in (a.get('history') or []):
+        if isinstance(h, dict) and h.get('status') == 'claimed':
+            who = str(h.get('by') or '')
+    return who
+
+
+def confirm_claim(ship, aid, mine):
+    """'' when the action is ours to act on, else why it is not."""
+    if not mine:
+        return 'the claim answered no by'
+    for n in range(CLAIM_READS):
+        if n:
+            time.sleep(CLAIM_PAUSE)
+        for a in ship.actions('claimed'):
+            if isinstance(a, dict) and str(a.get('id')) == aid:
+                who = claimant(a)
+                return '' if who == mine else 'claimed by ' + who
+    return 'the claim did not land in %d reads' % CLAIM_READS
+
+
 
 def check_payload(payload, allow):
     """Why this home action may not run, or None."""
@@ -277,15 +306,26 @@ def check_payload(payload, allow):
 
 
 def execute(cfg, ship, hass, state):
-    """Claim every approved home action, run it once and report on each."""
+    """Claim every open home action, run it once and report on each.
+
+    Open, not approved: an action another client claimed and abandoned is
+    claimable again once its lease runs out, and the ship, not the clock
+    here, decides that.
+    """
     done = list(state.get('executed', []))
-    for a in ship.actions('approved'):
+    for a in ship.actions('open'):
         if not isinstance(a, dict) or a.get('kind') != 'home' or a.get('id') in done:
+            continue
+        if a.get('status') not in ('approved', 'claimed'):
             continue
         aid = str(a.get('id'))
         code, d = ship.move(aid, 'claimed')
         if code != 200:
             print('claim refused, skipping', aid, code, d, file=sys.stderr)
+            continue
+        why = confirm_claim(ship, aid, str((d or {}).get('by') or ''))
+        if why:
+            print('claim not confirmed, skipping', aid, why, file=sys.stderr)
             continue
         payload = a.get('payload')
         why = check_payload(payload, cfg.get('allow', []))

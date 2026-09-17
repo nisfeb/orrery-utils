@@ -29,7 +29,7 @@ The assistant proposes a message:
  "payload": {"via": "telegram", "to": "person/sarah", "text": "The car is at John's Machine Shop, they'll look at it in the morning."}}
 ```
 
-The owner approves it; keep `message` off the policy's `auto` list, so nothing is ever sent without a human reading it first. The bot polls approved actions, takes the ones of kind `message` whose payload says `via` `telegram`, claims each one for ten minutes before it sends, finds the chat for `to` (a body id from `people`, or a chat id from `chats`), sends the text, and reports `done` or `failed` with the reason. A claim the ship refuses means another bot holds that action, so this one skips it for the pass and never sends the message. A `message` for another platform is left alone. Each action is delivered once; its id goes into `state.json`.
+The owner approves it; keep `message` off the policy's `auto` list, so nothing is ever sent without a human reading it first. The bot polls the open actions, takes the ones of kind `message` that are approved or claimed and whose payload says `via` `telegram`, claims each one for ten minutes before it sends, finds the chat for `to` (a body id from `people`, or a chat id from `chats`), sends the text, and reports `done` or `failed` with the reason. A claim the ship refuses means another bot holds that action, so this one skips it for the pass and never sends the message. The full protocol, poll open, claim, read back, act, report, is in the root README under Actions out. A `message` for another platform is left alone. Each action is delivered once; its id goes into `state.json`.
 
 The bot can only message people who have started a chat with it or groups it is in. That is Telegram's rule, and it is a good one.
 

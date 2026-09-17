@@ -71,9 +71,15 @@ Two roles. A proposer files something to do with `POST /apps/orrery/api/act`: a 
 
 The answer says `approved` when the owner's policy auto-approves that kind, or `proposed` when it waits for the owner. A proposal whose kind and title match an open action answers the existing id.
 
-An executor carries out approved actions of its own kind. It polls `GET /apps/orrery/api/actions?status=approved`, takes the ones of its kind, claims each one with `POST /apps/orrery/api/actions/<id>` and `{"status": "claimed"}`, does the work, and reports back on the same route with `{"status": "done"}` or `{"status": "failed", "note": "why"}`.
+An executor carries out actions of its own kind. The protocol is poll, claim, read back, act, report, and it is five steps because a write answers before the ship has applied it.
 
-Claim before you act. A claim that answers anything but 200 means another executor holds the action, so skip it this pass and leave your cursor alone. The claim is a ten minute lease: a claimed action leaves the `approved` list, only the claimant may report done or failed, and after ten minutes another executor may claim what was abandoned. The ship holds `task` and `note` itself; every other kind (`message`, `calendar`, `home`, ...) exists only because some executor here claims it. Leave executor kinds off the policy's `auto` list so the owner approves them; a light switching on because a model asked is exactly the kind of thing the inbox is for.
+1. Poll `GET /apps/orrery/api/actions?status=open` and keep the ones of your kind whose status is `approved` or `claimed`. Not `?status=approved`: an action a dead executor claimed and never finished only ever shows as `claimed`, and skipping those is how one leaves it stranded.
+2. Claim it with `POST /apps/orrery/api/actions/<id>` and `{"status": "claimed"}`. Anything but 200 means another executor holds a live lease, so skip that action this pass and leave your cursor alone.
+3. Read it back. The claim answered before the writer applied it, and it carries the `by` the ship stores for your step, so fetch `GET /apps/orrery/api/actions?status=claimed` and act only when the last `claimed` step of your action names that `by`. A read that still shows the action `approved` means the writer has not caught up: read again, a few times, a fifth of a second apart. Anything else, including a claim another executor won, means skip it.
+4. Do the work.
+5. Report with `{"status": "done"}` or `{"status": "failed", "note": "why"}` on the same route. Only the claimant may report either.
+
+The claim is a ten minute lease. A claimed action leaves the `approved` list but stays in `open`, so after ten minutes the next executor to poll claims it again and the work is retried rather than stranded. The ship holds `task` and `note` itself; every other kind (`message`, `calendar`, `home`, ...) exists only because some executor here claims it. Leave executor kinds off the policy's `auto` list so the owner approves them; a light switching on because a model asked is exactly the kind of thing the inbox is for.
 
 ## The rules every integration follows
 

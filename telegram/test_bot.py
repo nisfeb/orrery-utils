@@ -86,17 +86,31 @@ class Grammar(unittest.TestCase):
 
 class Actions(unittest.TestCase):
     class FakeShip(bot.NoShip):
-        def __init__(self, approved, claim=200):
-            self.approved = approved
+        """The open list, the answer a claim gets, and what the read back
+        sees: reads is one answer to actions('claimed') per read, and with
+        none given every claim of ours lands at once."""
+
+        def __init__(self, open_actions, claim=200, by='telegram', reads=None):
+            self.open = open_actions
             self.claim = claim
+            self.by = by
+            self.reads = reads
             self.moves = []
 
         def actions(self, status):
-            return self.approved if status == 'approved' else []
+            if status == 'open':
+                return self.open
+            if status != 'claimed':
+                return []
+            if self.reads is None:
+                return [{'id': aid, 'history': [{'status': 'claimed', 'by': self.by}]}
+                        for aid, st, _ in self.moves if st == 'claimed']
+            return self.reads.pop(0) if self.reads else []
 
         def move(self, aid, status, note=''):
             self.moves.append((aid, status, note))
-            return (self.claim if status == 'claimed' else 200), None
+            code = self.claim if status == 'claimed' else 200
+            return code, {'id': aid, 'status': status, 'by': self.by, 'ok': True}
 
     class FakeTelegram(bot.NoTelegram):
         def __init__(self):
@@ -106,14 +120,19 @@ class Actions(unittest.TestCase):
             self.sent.append((chat_id, text))
             return True, ''
 
+    def setUp(self):
+        bot.CLAIM_PAUSE = 0
+        bot.CLAIM_READS = 5
+
     def test_delivery(self):
         cfg = load('config.json')
         ship = self.FakeShip([
-            {'id': 'a1', 'kind': 'message', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': "The car is at John's"}},
-            {'id': 'a2', 'kind': 'message', 'payload': {'via': 'telegram', 'to': 'person/nobody', 'text': 'hi'}},
-            {'id': 'a3', 'kind': 'message', 'payload': {'via': 'sms', 'to': 'person/sarah', 'text': 'hi'}},
-            {'id': 'a4', 'kind': 'message', 'payload': {'via': 'telegram', 'to': '-100200', 'text': ''}},
-            {'id': 'a5', 'kind': 'task', 'payload': {}},
+            {'id': 'a1', 'kind': 'message', 'status': 'approved', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': "The car is at John's"}},
+            {'id': 'a2', 'kind': 'message', 'status': 'approved', 'payload': {'via': 'telegram', 'to': 'person/nobody', 'text': 'hi'}},
+            {'id': 'a3', 'kind': 'message', 'status': 'approved', 'payload': {'via': 'sms', 'to': 'person/sarah', 'text': 'hi'}},
+            {'id': 'a4', 'kind': 'message', 'status': 'approved', 'payload': {'via': 'telegram', 'to': '-100200', 'text': ''}},
+            {'id': 'a5', 'kind': 'task', 'status': 'approved', 'payload': {}},
+            {'id': 'a6', 'kind': 'message', 'status': 'proposed', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': 'waiting for a human'}},
         ])
         tg = self.FakeTelegram()
         state = {}
@@ -130,7 +149,7 @@ class Actions(unittest.TestCase):
     def test_a_refused_claim_leaves_the_action_alone(self):
         cfg = load('config.json')
         ship = self.FakeShip([
-            {'id': 'a1', 'kind': 'message', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': "The car is at John's"}},
+            {'id': 'a1', 'kind': 'message', 'status': 'approved', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': "The car is at John's"}},
         ], claim=409)
         tg = self.FakeTelegram()
         state = {}
@@ -138,6 +157,54 @@ class Actions(unittest.TestCase):
         self.assertEqual(tg.sent, [])
         self.assertEqual([m[1] for m in ship.moves], ['claimed'])
         self.assertEqual(state['executed'], [])
+
+    def test_a_claim_another_bot_won_is_not_sent(self):
+        cfg = load('config.json')
+        ship = self.FakeShip([
+            {'id': 'a1', 'kind': 'message', 'status': 'approved', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': "The car is at John's"}},
+        ], reads=[[{'id': 'a1', 'history': [{'status': 'claimed', 'by': 'other'}]}]])
+        tg = self.FakeTelegram()
+        state = {}
+        bot.execute(cfg, ship, tg, state)
+        self.assertEqual(tg.sent, [])
+        self.assertEqual([m[1] for m in ship.moves], ['claimed'])
+        self.assertEqual(state['executed'], [])
+
+    def test_a_slow_writer_is_read_again_and_a_claim_that_never_lands_is_skipped(self):
+        cfg = load('config.json')
+        row = {'id': 'a1', 'kind': 'message', 'status': 'approved', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': "The car is at John's"}}
+        slow = self.FakeShip([dict(row)], reads=[[], [{'id': 'a1', 'history': [{'status': 'claimed', 'by': 'telegram'}]}]])
+        tg = self.FakeTelegram()
+        state = {}
+        bot.execute(cfg, slow, tg, state)
+        self.assertEqual(tg.sent, [('2002', "The car is at John's")])
+        self.assertEqual([m[:2] for m in slow.moves], [('a1', 'claimed'), ('a1', 'done')])
+        self.assertEqual(state['executed'], ['a1'])
+        never = self.FakeShip([dict(row)], reads=[[], [], [], [], []])
+        tg = self.FakeTelegram()
+        state = {}
+        bot.execute(cfg, never, tg, state)
+        self.assertEqual(tg.sent, [])
+        self.assertEqual([m[1] for m in never.moves], ['claimed'])
+        self.assertEqual(state['executed'], [])
+
+    def test_an_abandoned_claim_is_taken_again(self):
+        cfg = load('config.json')
+        row = {'id': 'a1', 'kind': 'message', 'status': 'claimed', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': "The car is at John's"}}
+        live = self.FakeShip([dict(row)], claim=409)
+        tg = self.FakeTelegram()
+        state = {}
+        bot.execute(cfg, live, tg, state)
+        self.assertEqual(tg.sent, [])
+        self.assertEqual([m[1] for m in live.moves], ['claimed'])
+        self.assertEqual(state['executed'], [])
+        expired = self.FakeShip([dict(row)])
+        tg = self.FakeTelegram()
+        state = {}
+        bot.execute(cfg, expired, tg, state)
+        self.assertEqual(tg.sent, [('2002', "The car is at John's")])
+        self.assertEqual([m[:2] for m in expired.moves], [('a1', 'claimed'), ('a1', 'done')])
+        self.assertEqual(state['executed'], ['a1'])
 
 
 if __name__ == '__main__':
