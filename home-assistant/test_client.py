@@ -90,8 +90,9 @@ class Mapping(unittest.TestCase):
 
 
 class FakeShip(client.NoShip):
-    def __init__(self, approved):
+    def __init__(self, approved, claim=200):
         self.approved = approved
+        self.claim = claim
         self.moves = []
 
     def actions(self, status):
@@ -99,7 +100,7 @@ class FakeShip(client.NoShip):
 
     def move(self, aid, status, note=''):
         self.moves.append((aid, status, note))
-        return 200, None
+        return (self.claim if status == 'claimed' else 200), None
 
 
 class FakeHass(client.NoHass):
@@ -135,8 +136,9 @@ class Executor(unittest.TestCase):
         state = {}
         client.execute(self.cfg, ship, hass, state)
         self.assertEqual(hass.calls, [('light.turn_on', {'entity_id': 'light.porch'})])
-        self.assertEqual([m[:2] for m in ship.moves], [('a1', 'done'), ('a2', 'failed')])
-        self.assertIn('not allowed', ship.moves[1][2])
+        self.assertEqual([m[:2] for m in ship.moves],
+                         [('a1', 'claimed'), ('a1', 'done'), ('a2', 'claimed'), ('a2', 'failed')])
+        self.assertIn('not allowed', ship.moves[3][2])
         self.assertEqual(state['executed'], ['a1', 'a2'])
 
     def test_service_failure_is_reported_once(self):
@@ -144,9 +146,18 @@ class Executor(unittest.TestCase):
         hass = FakeHass(ok=False)
         state = {}
         client.execute(self.cfg, ship, hass, state)
-        self.assertEqual(ship.moves, [('a1', 'failed', 'home assistant answered 500: boom')])
+        self.assertEqual(ship.moves, [('a1', 'claimed', ''), ('a1', 'failed', 'home assistant answered 500: boom')])
         client.execute(self.cfg, ship, hass, state)
         self.assertEqual(len(hass.calls), 1)
+
+    def test_a_refused_claim_leaves_the_action_alone(self):
+        ship = FakeShip([{'id': 'a1', 'kind': 'home', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}}], claim=409)
+        hass = FakeHass()
+        state = {}
+        client.execute(self.cfg, ship, hass, state)
+        self.assertEqual(hass.calls, [])
+        self.assertEqual([m[1] for m in ship.moves], ['claimed'])
+        self.assertEqual(state['executed'], [])
 
 
 if __name__ == '__main__':

@@ -71,7 +71,9 @@ Two roles. A proposer files something to do with `POST /apps/orrery/api/act`: a 
 
 The answer says `approved` when the owner's policy auto-approves that kind, or `proposed` when it waits for the owner. A proposal whose kind and title match an open action answers the existing id.
 
-An executor carries out approved actions of its own kind. It polls `GET /apps/orrery/api/actions?status=approved`, takes the ones of its kind, does the work, and reports back with `POST /apps/orrery/api/actions/<id>` and `{"status": "done"}` or `{"status": "failed", "note": "why"}`. The ship holds `task` and `note` itself; every other kind (`message`, `calendar`, `home`, ...) exists only because some executor here claims it. Leave executor kinds off the policy's `auto` list so the owner approves them; a light switching on because a model asked is exactly the kind of thing the inbox is for.
+An executor carries out approved actions of its own kind. It polls `GET /apps/orrery/api/actions?status=approved`, takes the ones of its kind, claims each one with `POST /apps/orrery/api/actions/<id>` and `{"status": "claimed"}`, does the work, and reports back on the same route with `{"status": "done"}` or `{"status": "failed", "note": "why"}`.
+
+Claim before you act. A claim that answers anything but 200 means another executor holds the action, so skip it this pass and leave your cursor alone. The claim is a ten minute lease: a claimed action leaves the `approved` list, only the claimant may report done or failed, and after ten minutes another executor may claim what was abandoned. The ship holds `task` and `note` itself; every other kind (`message`, `calendar`, `home`, ...) exists only because some executor here claims it. Leave executor kinds off the policy's `auto` list so the owner approves them; a light switching on because a model asked is exactly the kind of thing the inbox is for.
 
 ## The rules every integration follows
 

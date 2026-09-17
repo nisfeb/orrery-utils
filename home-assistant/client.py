@@ -277,12 +277,16 @@ def check_payload(payload, allow):
 
 
 def execute(cfg, ship, hass, state):
-    """Run every approved home action once and report on each."""
+    """Claim every approved home action, run it once and report on each."""
     done = list(state.get('executed', []))
     for a in ship.actions('approved'):
         if not isinstance(a, dict) or a.get('kind') != 'home' or a.get('id') in done:
             continue
         aid = str(a.get('id'))
+        code, d = ship.move(aid, 'claimed')
+        if code != 200:
+            print('claim refused, skipping', aid, code, d, file=sys.stderr)
+            continue
         payload = a.get('payload')
         why = check_payload(payload, cfg.get('allow', []))
         if why:

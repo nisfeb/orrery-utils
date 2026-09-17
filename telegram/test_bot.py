@@ -86,8 +86,9 @@ class Grammar(unittest.TestCase):
 
 class Actions(unittest.TestCase):
     class FakeShip(bot.NoShip):
-        def __init__(self, approved):
+        def __init__(self, approved, claim=200):
             self.approved = approved
+            self.claim = claim
             self.moves = []
 
         def actions(self, status):
@@ -95,7 +96,7 @@ class Actions(unittest.TestCase):
 
         def move(self, aid, status, note=''):
             self.moves.append((aid, status, note))
-            return 200, None
+            return (self.claim if status == 'claimed' else 200), None
 
     class FakeTelegram(bot.NoTelegram):
         def __init__(self):
@@ -118,11 +119,25 @@ class Actions(unittest.TestCase):
         state = {}
         bot.execute(cfg, ship, tg, state)
         self.assertEqual(tg.sent, [('2002', "The car is at John's")])
-        self.assertEqual([m[:2] for m in ship.moves], [('a1', 'done'), ('a2', 'failed'), ('a4', 'failed')])
-        self.assertIn('nobody', ship.moves[1][2])
+        self.assertEqual([m[:2] for m in ship.moves],
+                         [('a1', 'claimed'), ('a1', 'done'), ('a2', 'claimed'), ('a2', 'failed'),
+                          ('a4', 'claimed'), ('a4', 'failed')])
+        self.assertIn('nobody', ship.moves[3][2])
         self.assertEqual(state['executed'], ['a1', 'a2', 'a4'])
         bot.execute(cfg, ship, tg, state)
         self.assertEqual(len(tg.sent), 1)
+
+    def test_a_refused_claim_leaves_the_action_alone(self):
+        cfg = load('config.json')
+        ship = self.FakeShip([
+            {'id': 'a1', 'kind': 'message', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': "The car is at John's"}},
+        ], claim=409)
+        tg = self.FakeTelegram()
+        state = {}
+        bot.execute(cfg, ship, tg, state)
+        self.assertEqual(tg.sent, [])
+        self.assertEqual([m[1] for m in ship.moves], ['claimed'])
+        self.assertEqual(state['executed'], [])
 
 
 if __name__ == '__main__':

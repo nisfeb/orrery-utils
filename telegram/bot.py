@@ -288,7 +288,7 @@ def chat_for(to, cfg):
 
 
 def execute(cfg, ship, tg, state):
-    """Deliver every approved message action addressed via telegram, once."""
+    """Claim and deliver every approved message action addressed via telegram, once."""
     done = list(state.get('executed', []))
     for a in ship.actions('approved'):
         if not isinstance(a, dict) or a.get('kind') != 'message' or a.get('id') in done:
@@ -297,6 +297,10 @@ def execute(cfg, ship, tg, state):
         if payload.get('via') != PLATFORM:
             continue
         aid = str(a.get('id'))
+        code, d = ship.move(aid, 'claimed')
+        if code != 200:
+            print('claim refused, skipping', aid, code, d, file=sys.stderr)
+            continue
         text = str(payload.get('text') or '').strip()
         chat = chat_for(payload.get('to'), cfg)
         if not text:
