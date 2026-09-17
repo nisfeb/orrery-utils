@@ -172,6 +172,10 @@ Ranked by how much of the world they explain per hour of work. Each is one direc
 
 To build state from what already happened, both readers can run over the past. `mail/reader.py --months 6` reads a folder from that day on through the rules and the model, resumably, and `telegram/backfill.py --export result.json --months 6` does the same for a Telegram Desktop export. `at` is each message's own time, so the facts land where they belong and the timeline reads as it happened.
 
+## Associating what belongs together
+
+Readers see one message at a time, so two of them, or one of them on two days, can name the same thing twice: "Andrea" and "Andrea Egan", or a situation per occurrence of a class that meets twice a week. Three things keep the model in one piece. Orrery's resolve matches a query against names, aliases, email and phone, exact first and then by word containment, so a reader that resolves before it creates usually finds what is already there. The analyst folds twins the model makes anyway into the bodies the ship has, by normalised title for situations and activities and by name words for people. And `common/reconcile.py` cleans up after the fact: occurrences become one `activity` with an observation per occurrence, and bodies that name one person become `merge` proposals the owner approves, applied through orrery's merge op.
+
 ## Writing a new integration
 
 1. Make a directory named after the source. Its README carries the mapping table (source field to body kind and attribute), the scope the key needs and why, the source kind and id form, what stays on the client, and how to run it.

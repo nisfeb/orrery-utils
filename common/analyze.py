@@ -44,7 +44,9 @@ Rules.
 Only state what the messages say or clearly imply. Never invent. When unsure, leave it out or lower the confidence.
 Use the existing bodies by id whenever a message refers to one of them, by name or alias. Create a new body only for a named person, place, thing or org, or for a situation (an event with participants) the messages describe.
 Use the attribute names listed for each kind when one fits; otherwise a short lowercase name.
-A situation body carries status ("open" or "closed"), participants (one observation per participant, value {"ref": ...}), location, started and ended.
+A situation body carries status ("open" or "closed"), participants (one observation per participant, value {"ref": ...}), location, started and ended. A situation happens once: a breakdown, a birthday, a delivery.
+An activity is something that repeats: a class, a practice, a standing appointment, confession every Saturday. It is one body of kind activity, with schedule ("Tue/Thu 16:45"), cadence ("weekly"), location, participants and organizer. An occurrence of an activity is never a new body: write the activity's "last" = the start of that occurrence, with "at" = that start, and "next" = the start of the following one when the message says it. A calendar reminder or notification for a repeating event is an occurrence of an activity, not a situation.
+A person is never an org. A payment request, a reminder or a note from a person names a person body; reuse the existing person when the name or the address matches, even when only the first name is on record.
 "at" is when the fact became true, ISO 8601 UTC, and defaults to the message's time; set it only when the message says otherwise. "until" is when it will stop being true, when the message says so.
 "conf" is 0 to 100: 90 for a plain statement, 60 for an inference, 40 for a guess.
 Each observation and action names the "message" id it comes from.
@@ -193,6 +195,77 @@ def clean_value(v, known):
     return '!value of an unknown type'
 
 
+NOISE_RE = re.compile(r'^(?:reminder|invitation|updated invitation|fwd|fw|re|notification)\s*:\s*', re.I)
+DATEISH_RE = re.compile(r'\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|'
+                        r'\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b|'
+                        r'\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:,?\s+\d{4})?\b', re.I)
+
+
+def normalize_title(text):
+    """A title with its noise stripped: prefixes like Reminder:, dates, times
+    and weekdays, punctuation and case. "Reminder: Ballet @ Wed Sep 16, 4:45pm"
+    and "Ballet" normalise to the same key; "Adelaide- Ballet/Tap" stays its own."""
+    t = NOISE_RE.sub('', str(text or '').strip())
+    t = NOISE_RE.sub('', t)
+    t = DATEISH_RE.sub(' ', t)
+    t = re.sub(r'[^a-z0-9/ ]+', ' ', t.lower())
+    return re.sub(r'\s+', ' ', t).strip()
+
+
+def slug(text, limit=64):
+    """A body slug: lowercase letters, digits and hyphens."""
+    s = re.sub(r'[^a-z0-9-]+', '-', str(text or '').lower()).strip('-')
+    return re.sub(r'-{2,}', '-', s)[:limit].strip('-') or 'x'
+
+
+def person_key(name):
+    """The lowercase word set of a person's name."""
+    return frozenset(w for w in re.split(r'[^a-z0-9]+', str(name or '').lower()) if w)
+
+
+ROLE_WORDS = {'me', 'i', 'wife', 'husband', 'mom', 'mum', 'dad', 'mother', 'father', 'son', 'daughter',
+              'brother', 'sister', 'boss', 'friend', 'partner', 'mr', 'mrs', 'ms', 'dr', 'the'}
+
+
+def same_person(a, b):
+    """Every word of the shorter name is in the longer one, and a one-word
+    name is a first name, not a role: "andrea" and "andrea egan" are one
+    person, "andrea" and "andrew egan" are not, and "wife" names nobody."""
+    ka, kb = person_key(a) - ROLE_WORDS, person_key(b) - ROLE_WORDS
+    if not ka or not kb:
+        return False
+    short_, long_ = (ka, kb) if len(ka) <= len(kb) else (kb, ka)
+    if not short_ <= long_:
+        return False
+    if len(short_) == 1:
+        first = [w for w in re.split(r'[^a-z0-9]+', str(a if short_ == ka else b).lower()) if w and w not in ROLE_WORDS]
+        other = [w for w in re.split(r'[^a-z0-9]+', str(b if short_ == ka else a).lower()) if w and w not in ROLE_WORDS]
+        return bool(first) and bool(other) and first[0] == other[0]
+    return True
+
+
+def existing_for(body, context, made):
+    """The id of an existing or already-made body this new one duplicates:
+    a situation or activity with the same normalised title, or a person the
+    same words name. None when it is new."""
+    kind = body['id'].split('/', 1)[0]
+    pool = list(context.get('bodies', [])) + made
+    if kind in ('situation', 'activity'):
+        key = normalize_title(body.get('name'))
+        if not key:
+            return None
+        for b in pool:
+            if b['id'].split('/', 1)[0] in ('situation', 'activity') and normalize_title(b.get('name')) == key:
+                return b['id']
+        return None
+    if kind == 'person':
+        hits = [b['id'] for b in pool if b['id'].startswith('person/')
+                and (same_person(body.get('name'), b.get('name'))
+                     or any(same_person(body.get('name'), a) for a in (b.get('aliases') or [])))]
+        return hits[0] if len(hits) == 1 else None
+    return None
+
+
 def validate(answer, messages, context):
     """The model's answer as facts orrery will take, with notes on what was dropped."""
     notes = []
@@ -201,6 +274,7 @@ def validate(answer, messages, context):
     at_of = {m['id']: m.get('at') for m in messages}
     last = ids[-1] if ids else ''
     bodies = []
+    alias_of = {}
     for b in answer.get('bodies') or []:
         if not isinstance(b, dict):
             continue
@@ -212,14 +286,26 @@ def validate(answer, messages, context):
             continue
         name = str(b.get('name') or bid.split('/', 1)[1].replace('-', ' ')).strip()[:200]
         aliases = [str(a).strip()[:100] for a in (b.get('aliases') or []) if str(a).strip()][:32]
-        bodies.append({'id': bid, 'name': name, 'aliases': aliases} if aliases else {'id': bid, 'name': name})
+        row = {'id': bid, 'name': name, 'aliases': aliases} if aliases else {'id': bid, 'name': name}
+        twin = existing_for(row, context, bodies)
+        if twin:
+            alias_of[bid] = twin
+            notes.append('%s is %s' % (bid, twin))
+            continue
+        bodies.append(row)
         known.add(bid)
+
+    def canon(bid):
+        return alias_of.get(bid, bid)
+
     observations = []
     for o in answer.get('observations') or []:
         if not isinstance(o, dict):
             continue
-        subject = str(o.get('subject', '')).strip().lower()
+        subject = canon(str(o.get('subject', '')).strip().lower())
         attr = str(o.get('attr', '')).strip().lower()
+        if isinstance(o.get('value'), dict) and set(o['value'].keys()) == {'ref'}:
+            o = dict(o, value={'ref': canon(str(o['value']['ref']).strip().lower())})
         if subject not in known:
             notes.append('dropped observation on an unknown body: ' + subject)
             continue
@@ -251,7 +337,8 @@ def validate(answer, messages, context):
         if kind not in kinds or not title:
             notes.append('dropped action: ' + (title or '(no title)'))
             continue
-        about = [str(x).strip().lower() for x in (a.get('about') or []) if str(x).strip().lower() in known][:20]
+        about = [canon(str(x).strip().lower()) for x in (a.get('about') or [])]
+        about = list(dict.fromkeys(x for x in about if x in known))[:20]
         row = {'kind': kind, 'title': title, 'about': about,
                'message': str(a.get('message', '')) if str(a.get('message', '')) in ids else last}
         due = iso_or_none(a.get('due'))

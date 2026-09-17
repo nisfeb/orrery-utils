@@ -95,6 +95,52 @@ class Validation(unittest.TestCase):
         self.assertEqual(len(bodies), 2)
 
 
+class Association(unittest.TestCase):
+    """Twins the model makes anyway are folded into the bodies the ship has."""
+
+    def test_normalised_titles(self):
+        n = analyze.normalize_title
+        self.assertEqual(n('Reminder: Ballet @ Wed Sep 16, 2026 4:45pm'), 'ballet')
+        self.assertEqual(n('Ballet'), 'ballet')
+        self.assertEqual(n('Adelaide- Ballet/Tap'), 'adelaide ballet/tap')
+        self.assertNotEqual(n('Adelaide- Ballet/Tap'), n('Ballet'))
+        self.assertEqual(n('Invitation: Confession 2026-09-20'), 'confession')
+
+    def test_same_person(self):
+        self.assertTrue(analyze.same_person('Andrea', 'Andrea Egan'))
+        self.assertTrue(analyze.same_person('andrea egan', 'Andrea'))
+        self.assertFalse(analyze.same_person('Andrea', 'Andrew Egan'))
+        self.assertFalse(analyze.same_person('', 'Andrea'))
+        self.assertFalse(analyze.same_person('wife', 'jackson wife'))
+        self.assertFalse(analyze.same_person('Egan', 'Andrea Egan'))
+        self.assertTrue(analyze.same_person('Andrea Egan', 'Andrea O Egan'))
+
+    def test_twins_fold_into_existing_bodies(self):
+        context = {'bodies': [{'id': 'person/andrea', 'name': 'Andrea', 'aliases': ['wife']},
+                              {'id': 'activity/ballet', 'name': 'Ballet', 'aliases': []},
+                              {'id': 'person/me', 'name': 'me', 'aliases': []}],
+                   'attrs': {}, 'me': 'person/me', 'channel': 'mail', 'action_kinds': ['task']}
+        answer = {'bodies': [{'id': 'person/andrea-egan', 'name': 'Andrea Egan'},
+                             {'id': 'situation/ballet-sep-16', 'name': 'Reminder: Ballet @ Sep 16, 4:45pm'},
+                             {'id': 'situation/ballet-sep-18', 'name': 'Ballet'},
+                             {'id': 'activity/confession', 'name': 'Confession'},
+                             {'id': 'situation/confession-2', 'name': 'Reminder: Confession'}],
+                  'observations': [{'subject': 'person/andrea-egan', 'attr': 'email', 'value': 'a@x.example', 'message': 'm1'},
+                                   {'subject': 'situation/ballet-sep-16', 'attr': 'last', 'value': '2026-09-16T20:45:00Z', 'message': 'm1'},
+                                   {'subject': 'situation/confession-2', 'attr': 'last', 'value': '2026-09-19T14:00:00Z', 'message': 'm1'},
+                                   {'subject': 'person/me', 'attr': 'spouse', 'value': {'ref': 'person/andrea-egan'}, 'message': 'm1'}],
+                  'actions': [{'kind': 'task', 'title': 'Pay Andrea', 'about': ['person/andrea-egan', 'person/andrea'], 'message': 'm1'}]}
+        facts = analyze.validate(answer, [{'id': 'm1', 'at': '2026-09-16T12:00:00Z', 'who': 'x', 'text': ''}], context)
+        self.assertEqual([b['id'] for b in facts['bodies']], ['activity/confession'])
+        subjects = [(o['subject'], o['attr']) for o in facts['observations']]
+        self.assertEqual(subjects, [('person/andrea', 'email'), ('activity/ballet', 'last'),
+                                    ('activity/confession', 'last'), ('person/me', 'spouse')])
+        self.assertEqual(facts['observations'][3]['value'], {'ref': 'person/andrea'})
+        self.assertEqual(facts['actions'][0]['about'], ['person/andrea'])
+        self.assertIn('person/andrea-egan is person/andrea', facts['notes'])
+        self.assertIn('situation/ballet-sep-18 is activity/ballet', facts['notes'])
+
+
 class Answers(unittest.TestCase):
     def test_fenced_json_is_read(self):
         facts = analyze.analyze(analyze.FakeModel('Sure.\n```json\n' + json.dumps(ANSWER) + '\n```'), MESSAGES, CONTEXT)
