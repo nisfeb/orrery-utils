@@ -20,13 +20,13 @@ The rules run in this order. The first rule that claims a message stops the rest
 
 Dates: `at` is the message's `Date` header, because the fact became known when the mail arrived; a trip's own start date is the value of `started`. A date with no year takes the message's year, or the next one when it would fall more than a month before the message. `until` on a shipment is midnight after the arrival day.
 
-Sensitive facts: the rules write neither `health` nor `income`. A model that reads statements or results must map money and health facts to those two attributes and nowhere else, so one line in the policy's `sensitive` list keeps them from every key.
+Sensitive facts: the rules write neither `health` nor `income`. A model that reads statements or results must map money and health facts to those two attributes and nowhere else, which the starter policy's `sensitive` list keeps from every key.
 
 ## The model
 
 With a `model` block in the config, every message the rules do not claim goes to a local model through `../common/analyze.py`: an OpenAI-compatible chat endpoint, LM Studio at `http://localhost:1234/v1` by default, with `name` left null to use whatever model the server lists first. The model sees the subject and the text, the bodies the ship already knows (id, name, aliases, read once per run from the state view) and the schema's attribute names, and answers bodies, observations and actions in orrery's shapes. Everything it answers is validated before it is sent: ids well formed, subjects known or created in the same answer, values bounded, times parseable; what fails is dropped with a note on the run's log. `--no-model` runs the rules alone; a server that is down stops the run with a message rather than silently skipping the model.
 
-The rules run first and a claimed message never reaches the model, so a shipping notice is always the same three rows however the model feels that day. Money and health facts belong to the attributes `income` and `health` and nowhere else; the prompt says so and the owner's `sensitive` list keeps them from every key.
+The rules run first and a claimed message never reaches the model, so a shipping notice is always the same three rows however the model feels that day. Money and health facts belong to the attributes `income` and `health` and nowhere else; the prompt says so, both names are in orrery's starter schema for a person, and the starter policy lists them as `sensitive`, so they are kept from every key. A ship seeded before orrery version 11 adds the two names to its schema and the `sensitive` line to its policy by hand.
 
 ## Filtering
 
