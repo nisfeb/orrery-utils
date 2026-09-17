@@ -120,6 +120,12 @@ class Association(unittest.TestCase):
         self.assertFalse(analyze.same_person('Quill', 'Dana Quill'))
         self.assertTrue(analyze.same_person('Dana Quill', 'Dana O Quill'))
 
+    def test_a_one_word_name_prefers_the_exact_body(self):
+        context = {'bodies': [{'id': 'person/me', 'name': 'owner', 'aliases': []},
+                              {'id': 'person/x', 'name': 'owner wife', 'aliases': []}]}
+        self.assertEqual(analyze.existing_for({'id': 'person/owner-2', 'name': 'owner'}, context, []), 'person/me')
+        self.assertIsNone(analyze.existing_for({'id': 'person/j', 'name': 'owner egan'}, context, []))
+
     def test_twins_fold_into_existing_bodies(self):
         context = {'bodies': [{'id': 'person/dana', 'name': 'Dana', 'aliases': ['wife']},
                               {'id': 'activity/pottery', 'name': 'Pottery', 'aliases': []},
