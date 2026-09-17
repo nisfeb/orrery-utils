@@ -101,12 +101,13 @@ class Decisions(unittest.TestCase):
         def call(self, method, path, body=None):
             self.calls.append((method, path, body))
             if path.startswith('/actions?'):
-                return 200, [
-                    {'kind': 'merge', 'status': 'dismissed', 'proposed': '2026-09-17T10:00:00Z', 'payload': {'from': 'person/a', 'into': 'person/b'}},
-                    {'kind': 'merge', 'status': 'done', 'proposed': '2026-09-17T11:00:00Z', 'payload': {'from': 'org/c', 'into': 'person/c'}},
-                    {'kind': 'merge', 'status': 'proposed', 'proposed': '2026-09-17T12:00:00Z', 'payload': {'from': 'person/d', 'into': 'person/e'}},
-                    {'kind': 'task', 'status': 'done', 'payload': {}},
+                acts = [
+                    {'id': 'm1', 'kind': 'merge', 'status': 'dismissed', 'payload': {'from': 'person/b', 'into': 'person/a'}},
+                    {'id': 'm2', 'kind': 'merge', 'status': 'done', 'payload': {'from': 'org/c', 'into': 'person/c'}},
+                    {'id': 'm3', 'kind': 'merge', 'status': 'proposed', 'payload': {'from': 'person/d', 'into': 'person/e'}},
+                    {'id': 't1', 'kind': 'task', 'status': 'done', 'payload': {}},
                 ]
+                return 200, [a for a in acts if a['status'] == 'proposed'] if 'status=open' in path else acts
             return 200, {'ok': True, 'id': 'x', 'status': 'proposed'}
 
     def test_remembered(self):
