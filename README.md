@@ -176,6 +176,8 @@ To build state from what already happened, both readers can run over the past. `
 
 Readers see one message at a time, so two of them, or one of them on two days, can name the same thing twice: "Dana" and "Dana Quill", or a situation per occurrence of a class that meets twice a week. Three things keep the model in one piece. Orrery's resolve matches a query against names, aliases, email and phone, exact first and then by word containment, so a reader that resolves before it creates usually finds what is already there. The analyst folds twins the model makes anyway into the bodies the ship has, by normalised title for situations and activities and by name words for people. And `common/reconcile.py` cleans up after the fact: occurrences become one `activity` with an observation per occurrence, bodies that name one person become `merge` proposals the owner approves, applied through orrery's merge op, and situations that are over are closed at the time they ended.
 
+Any client that writes to the ship, in this repo or outside it, follows `docs/writing-a-client.md`: resolve before creating, occurrences on activities, never `status: open` for an event, event time in `at`, a key rather than the cookie, no cache pushed back, and never the same message twice.
+
 ## Writing a new integration
 
 1. Make a directory named after the source. Its README carries the mapping table (source field to body kind and attribute), the scope the key needs and why, the source kind and id form, what stays on the client, and how to run it.
