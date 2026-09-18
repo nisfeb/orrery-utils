@@ -1,0 +1,31 @@
+{
+  "about": "Action generator: the frontier model reads the state and proposes actions for the inbox",
+  "run": [
+    "run.py",
+    "--config",
+    "config.json"
+  ],
+  "every": "60min",
+  "secrets": {
+    "orrery.token": "config.json",
+    "model.api_key": "../config.json"
+  },
+  "jobs": {
+    "dry run": {
+      "cmd": [
+        "run.py",
+        "--config",
+        "config.json",
+        "--dry-run"
+      ]
+    },
+    "the prompt it would send": {
+      "cmd": [
+        "run.py",
+        "--config",
+        "config.json",
+        "--no-model"
+      ]
+    }
+  }
+}
