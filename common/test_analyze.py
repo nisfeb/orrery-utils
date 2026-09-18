@@ -57,6 +57,15 @@ class Validation(unittest.TestCase):
     def setUp(self):
         self.facts = analyze.analyze(analyze.FakeModel(json.dumps(ANSWER)), MESSAGES, CONTEXT)
 
+    def test_a_known_body_learns_new_aliases(self):
+        context = {'bodies': [{'id': 'place/neighbors', 'name': 'the neighbors', 'aliases': ['next door']},
+                              {'id': 'person/rose', 'name': 'Rose', 'aliases': []}], 'attrs': {}, 'me': 'person/me', 'channel': 'chat', 'action_kinds': ['task']}
+        answer = {'bodies': [{'id': 'place/neighbors', 'name': 'the neighbors', 'aliases': ['next door', 'the Hendersons']}],
+                  'observations': [{'subject': 'person/rose', 'attr': 'location', 'value': {'ref': 'place/neighbors'}, 'message': 'm1'}]}
+        facts = analyze.validate(answer, [{'id': 'm1', 'at': '2026-09-18T12:00:00Z', 'who': 'person/me', 'text': "Rose is at the Hendersons'"}], context)
+        self.assertEqual(facts['bodies'], [{'id': 'place/neighbors', 'aliases': ['the Hendersons']}])
+        self.assertEqual(facts['observations'][0]['value'], {'ref': 'place/neighbors'})
+
     def test_new_bodies_only(self):
         self.assertEqual([b['id'] for b in self.facts['bodies']],
                          ['place/johns-machine-shop', 'situation/2026-09-16-breakdown'])

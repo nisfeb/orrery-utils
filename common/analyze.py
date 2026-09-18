@@ -338,10 +338,17 @@ def validate(answer, messages, context):
         if bid.split('/', 1)[0] not in KINDS:
             notes.append('dropped body of an unknown kind: ' + bid)
             continue
+        aliases = [str(a).strip()[:100] for a in (b.get('aliases') or []) if str(a).strip()][:32]
         if bid in known:
+            #  a body the ship has, named by new words: send the aliases only, so
+            #  the ship unions them and keeps its own name. That is how "next door"
+            #  becomes a name of place/neighbors without anyone typing it in
+            have = next((set(x.get('aliases') or []) | {x.get('name')} for x in context.get('bodies', []) if x['id'] == bid), set())
+            fresh = [a for a in aliases if a not in have]
+            if fresh:
+                bodies.append({'id': bid, 'aliases': fresh})
             continue
         name = str(b.get('name') or bid.split('/', 1)[1].replace('-', ' ')).strip()[:200]
-        aliases = [str(a).strip()[:100] for a in (b.get('aliases') or []) if str(a).strip()][:32]
         row = {'id': bid, 'name': name, 'aliases': aliases} if aliases else {'id': bid, 'name': name}
         twin = existing_for(row, context, bodies)
         if twin:
