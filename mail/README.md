@@ -64,11 +64,11 @@ Mint it on the ship with the owner cookie. The scope is the four kinds the rules
 ```bash
 curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api/clients -d '{
   "name": "mail reader on the laptop", "by": "mail",
-  "scope": {"kinds": ["person", "org", "thing", "situation"], "actions": ["task"], "write": true}
+  "scope": {"kinds": ["person", "org", "thing", "situation"], "actions": ["task"], "write": true, "sensitive": "write"}
 }'
 ```
 
-Keep the `token` from the answer in the environment variable the config names. The ship keeps a salted hash and shows it once.
+Keep the `token` from the answer in the environment variable the config names. The ship keeps a salted hash and shows it once. `"sensitive": "write"` lets the reader store the health and money facts mail carries about other people without ever reading them back; set `"sensitive_write": true` under `orrery` in the config to match, or the analyst drops those rows as unlisted.
 
 ## Configuration
 

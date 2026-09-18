@@ -181,7 +181,8 @@ def run(argv=None):
     state_path = cfg.get('state', 'state.json')
     state = bot.load_state(state_path)
     place = state.setdefault('backfill', {})
-    context = analyze.context_from_state(ship.state() if hasattr(ship, 'state') else {}, SOURCE)
+    sw = bool((cfg.get('orrery') or {}).get('sensitive_write'))
+    context = analyze.context_from_state(ship.state() if hasattr(ship, 'state') else {}, SOURCE, sensitive_write=sw)
     for chat in chats_in(export):
         name = str(chat.get('name') or chat.get('id') or '')
         if args.chat and name not in args.chat:
@@ -192,7 +193,7 @@ def run(argv=None):
         size = int(cfg.get('window', WINDOW_MESSAGES))
         for n, (earlier, window) in enumerate(with_context(windows(msgs, size))):
             if n and n % 10 == 0:
-                context = analyze.context_from_state(ship.state() if hasattr(ship, 'state') else {}, SOURCE)
+                context = analyze.context_from_state(ship.state() if hasattr(ship, 'state') else {}, SOURCE, sensitive_write=sw)
             facts = facts_for(window, chat_id, context, earlier)
             span = '%s..%s' % (window[0]['at'].strftime('%Y-%m-%d'), window[-1]['at'].strftime('%Y-%m-%d'))
             print('#  ', span, '%d msg' % len(window), '|', ' ; '.join(facts.notes) or ('nothing' if facts.empty() else

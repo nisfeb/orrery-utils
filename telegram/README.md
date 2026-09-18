@@ -54,9 +54,11 @@ It reads runs of six messages (`window` in the config) with the previous two as 
 ```bash
 curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api/clients -d '{
   "name": "telegram bot", "by": "telegram",
-  "scope": {"kinds": ["person", "place", "thing", "situation"], "actions": ["task", "message"], "write": true}
+  "scope": {"kinds": ["person", "place", "thing", "situation"], "actions": ["task", "message"], "write": true, "sensitive": "write"}
 }'
 ```
+
+`"sensitive": "write"` lets the bot store health and money facts people mention without reading them back; `"sensitive_write": true` under `orrery` in the config tells the analyst to keep them.
 
 ## Setting up the bot
 

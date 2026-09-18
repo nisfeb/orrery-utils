@@ -130,7 +130,7 @@ def closed_before(body, cutoff):
     return isinstance(when, str) and bool(when) and when < cutoff
 
 
-def context_from_state(state, channel, action_kinds=('task',)):
+def context_from_state(state, channel, action_kinds=('task',), sensitive_write=False):
     """The context block from a state view: the bodies (id, name, aliases),
     the schema's attribute names per kind, and person/me."""
     bodies = []
@@ -150,7 +150,7 @@ def context_from_state(state, channel, action_kinds=('task',)):
             if isinstance(spec.get('notes'), dict):
                 notes[kind] = {str(k): str(v) for k, v in spec['notes'].items() if isinstance(v, str)}
     return {'bodies': bodies[:MAX_BODIES_IN_CONTEXT], 'attrs': attrs, 'notes': notes, 'me': (state or {}).get('me', 'person/me'),
-            'channel': channel, 'action_kinds': list(action_kinds)}
+            'channel': channel, 'action_kinds': list(action_kinds), 'sensitive_write': bool(sensitive_write)}
 
 
 def prompt(messages, context):
@@ -374,6 +374,10 @@ def validate(answer, messages, context):
             continue
         kind = subject.split('/', 1)[0]
         listed = (context.get('attrs') or {}).get(kind) or []
+        if attr in SENSITIVE_ATTRS and context.get('sensitive_write'):
+            #  a key minted with sensitive: write may store health and income even
+            #  though its own schema view never lists them
+            listed = list(listed) + [attr]
         if listed and attr not in listed:
             #  a kind the schema speaks for keeps to its vocabulary, so a health or
             #  money fact cannot land on an invented name the owner's policy never sees
