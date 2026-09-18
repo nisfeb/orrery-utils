@@ -265,6 +265,15 @@ def run(argv=None):
     args = ap.parse_args(argv)
     with open(args.config) as f:
         cfg = json.load(f)
+    #  a .env beside the config (git-ignored) supplies the keys without them
+    #  ever appearing on a command line or in a shell history
+    env_path = os.path.join(os.path.dirname(os.path.abspath(args.config)), '.env')
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for row in f:
+                k, _, v = row.strip().partition('=')
+                if k and v and k not in os.environ:
+                    os.environ[k] = v
     token = os.environ.get(cfg['orrery'].get('token_env', 'ORRERY_TOKEN'), '')
     if not token:
         raise SystemExit('set ' + cfg['orrery'].get('token_env', 'ORRERY_TOKEN'))
