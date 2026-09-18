@@ -28,6 +28,7 @@ Standard library only.
 """
 import json
 import os
+import sys
 import re
 import urllib.error
 import urllib.request
@@ -181,7 +182,11 @@ class Model:
             body['provider'] = self.provider
         if self.reasoning:
             body['reasoning'] = self.reasoning
+        if 'openrouter' in self.url:
+            #  the router reports what the call cost, in dollars, with the usage
+            body['usage'] = {'include': True}
         d = self.request('/chat/completions', body)
+        self.report_usage(d.get('usage') if isinstance(d, dict) else None)
         try:
             choice = d['choices'][0]
             content = choice['message']['content']
@@ -194,6 +199,21 @@ class Model:
                                    'or if it reasons set "reasoning": {"enabled": false}' % self.max_tokens)
             raise RuntimeError('model answered without content (finish %s)' % choice.get('finish_reason'))
         return content
+
+
+    def report_usage(self, usage):
+        """One line on stderr per call: tokens in and out (reasoning counted
+        apart when the router says) and the cost when it is reported, so the
+        bill for a reader or the generator can be read off a log."""
+        if not isinstance(usage, dict):
+            return
+        details = usage.get('completion_tokens_details') or {}
+        bits = ['prompt %s' % usage.get('prompt_tokens', '?'), 'completion %s' % usage.get('completion_tokens', '?')]
+        if isinstance(details, dict) and details.get('reasoning_tokens') is not None:
+            bits.append('of which reasoning %s' % details['reasoning_tokens'])
+        if usage.get('cost') is not None:
+            bits.append('cost $%.4f' % float(usage['cost']))
+        print('# model usage: ' + ', '.join(bits), file=sys.stderr)
 
 
 class FakeModel:
