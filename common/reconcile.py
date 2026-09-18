@@ -16,6 +16,10 @@ Two passes over a ship's state.
                known person's first name names them too. Missing people are
                created and every activity or situation whose title names
                them gets them as participants.
+  times        a future "started" or "ended" becomes "starts" or "ends"
+               (the schedule), and a situation status that is not open,
+               closed or cancelled is retracted; the times say whether it
+               is upcoming, under way or over.
   retire       situations that are over (ended in the past, or started long
                ago with nothing said since) are closed with status = closed
                written at the time they ended; --prune DAYS also deletes
@@ -401,8 +405,8 @@ def last_word(body, reader):
     the timeline's when the fold hides a future-dated row, and the time of
     the newest observation of any kind."""
     attrs = body.get('attrs') or {}
-    started = value_of(attrs, 'started')
-    ended = value_of(attrs, 'ended')
+    started = value_of(attrs, 'started') or value_of(attrs, 'starts')
+    ended = value_of(attrs, 'ended') or value_of(attrs, 'ends')
     status = value_of(attrs, 'status')
     st = attrs.get('status') if isinstance(attrs.get('status'), dict) else {}
     status_at = st.get('at') if isinstance(st, dict) else None
@@ -411,9 +415,9 @@ def last_word(body, reader):
         code, view = reader('GET', '/body/' + body['id'])
         rows = [o for o in (view or {}).get('observations', []) if isinstance(view, dict) and o.get('status') != 'retracted']
         for o in rows:
-            if o['attr'] == 'started' and not started and isinstance(o.get('value'), str):
+            if o['attr'] in ('started', 'starts') and not started and isinstance(o.get('value'), str):
                 started = o['value']
-            if o['attr'] == 'ended' and not ended and isinstance(o.get('value'), str):
+            if o['attr'] in ('ended', 'ends') and not ended and isinstance(o.get('value'), str):
                 ended = o['value']
             if isinstance(o.get('seen'), str) and (latest is None or o['seen'] > latest):
                 latest = o['seen']
@@ -491,6 +495,50 @@ def plan_prune(state, reader, days, now=None):
         if status == 'closed' and (ended or latest) and (ended or latest) < cut:
             out.append(b['id'])
     return out
+
+
+# ==  times: the schedule is not the fact
+
+def plan_times(state, reader, now=None):
+    """Rows to retract and rows to write so that a future "started" or
+    "ended" becomes "starts" or "ends" (the schedule), and a situation's
+    status that is not open, closed or cancelled goes (the times say
+    whether it is upcoming, under way or over)."""
+    now = now or datetime.now(timezone.utc).replace(microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
+    retract, write = [], []
+    for b in state.get('bodies', []):
+        if b.get('kind') != 'situation':
+            continue
+        code, view = reader('GET', '/body/' + b['id'])
+        rows = [o for o in (view or {}).get('observations', []) if isinstance(view, dict) and o.get('status') != 'retracted']
+        for o in rows:
+            v = o.get('value')
+            #  a schedule row is known when it was learned, never at the event's own
+            #  time: an "at" in the future would hide it until the event
+            learned = o.get('at') if isinstance(o.get('at'), str) and o.get('at') <= now else now
+            if o['attr'] in ('started', 'ended') and isinstance(v, str) and analyze.iso_or_none(v) and analyze.iso_or_none(v) > now:
+                retract.append((o['id'], 'reconcile: a future time is a schedule, not a fact'))
+                write.append({'subject': b['id'], 'attr': 'starts' if o['attr'] == 'started' else 'ends', 'value': analyze.iso_or_none(v),
+                              'at': learned, 'conf': o.get('conf', 80), 'source': {'kind': 'reconcile', 'id': 'times/' + o['id']}})
+            elif o['attr'] in ('starts', 'ends') and isinstance(v, str) and isinstance(o.get('at'), str) and o['at'] > now:
+                retract.append((o['id'], 'reconcile: a schedule is known when it was learned'))
+                write.append({'subject': b['id'], 'attr': o['attr'], 'value': v, 'at': now, 'conf': o.get('conf', 80),
+                              'source': {'kind': 'reconcile', 'id': 'times/' + o['id']}})
+            if o['attr'] == 'status' and isinstance(v, str) and v.lower() not in ('open', 'closed', 'cancelled'):
+                retract.append((o['id'], 'reconcile: a situation is open, closed or cancelled; the times say the rest'))
+    return retract, write
+
+
+def apply_times(ship, retract, write):
+    for oid, why in retract:
+        ship.call('POST', '/retract', {'id': oid, 'note': why})
+    while write:
+        code, d = ship.call('POST', '/observe', {'bodies': [], 'observations': write[:200]})
+        write = write[200:]
+        if code != 200:
+            print('observe refused', code, str(d)[:200], file=sys.stderr)
+            return False
+    return True
 
 
 # ==  people out of titles
@@ -598,7 +646,7 @@ def run(argv=None):
     ap.add_argument('--ship', help='the ship URL')
     ap.add_argument('--jar', help='a curl cookie jar with the owner cookie')
     ap.add_argument('--state', help='a saved state view instead of a ship (dry run only)')
-    ap.add_argument('pass_', choices=['activities', 'people', 'retire'], metavar='PASS')
+    ap.add_argument('pass_', choices=['activities', 'people', 'retire', 'times'], metavar='PASS')
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--apply', action='store_true', help='people: run the approved merges instead of proposing')
     ap.add_argument('--min', type=int, default=3, help='activities: occurrences needed to make an activity')
@@ -624,6 +672,16 @@ def run(argv=None):
             return 0
         ensure_activity_kind(ship, False)
         return 0 if apply_activities(ship, plans) else 1
+    if args.pass_ == 'times':
+        retract, write = plan_times(state, None if args.state else ship.call)
+        print('%d row(s) to retract, %d schedule row(s) to write' % (len(retract), len(write)))
+        for oid, why in retract[:20]:
+            print('  retract', oid, '|', why)
+        for w in write[:20]:
+            print('  write', w['subject'], w['attr'], w['value'])
+        if args.dry_run:
+            return 0
+        return 0 if apply_times(ship, retract, write) else 1
     if args.pass_ == 'retire':
         reader = None if args.state else ship.call
         plans = plan_retire(state, reader, args.stale)

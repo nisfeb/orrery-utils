@@ -375,6 +375,9 @@ def validate(answer, messages, context):
         if not ATTR_RE.match(attr):
             notes.append('dropped observation with a bad attr: ' + attr)
             continue
+        if subject.startswith('situation/') and attr == 'status' and str(o.get('value')).lower() not in ('open', 'closed', 'cancelled'):
+            notes.append('dropped %s.status = %s: a situation is open, closed or cancelled; the times say the rest' % (subject, o.get('value')))
+            continue
         if attr in SINK_ATTRS:
             #  the prompt offers these so a feeling has somewhere to go that is not
             #  status; they are thrown away here, quietly

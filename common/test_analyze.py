@@ -214,7 +214,16 @@ class Answers(unittest.TestCase):
         writer = analyze.analyze(analyze.FakeModel(answer), msgs, analyze.context_from_state(state, 'chat'))
         self.assertEqual([(o['attr'], o['value']) for o in writer['observations']], [('health', 'biopsy clear')])
 
-    def test_notes_reach_the_prompt_and_the_sink_is_silent(self):
+    def test_a_situation_status_is_open_closed_or_cancelled(self):
+        context = {'bodies': [{'id': 'situation/meeting', 'name': 'Meeting', 'aliases': []}], 'attrs': {}, 'me': 'person/me', 'channel': 'mail', 'action_kinds': ['task']}
+        answer = {'observations': [{'subject': 'situation/meeting', 'attr': 'status', 'value': 'under way', 'message': 'm1'},
+                                   {'subject': 'situation/meeting', 'attr': 'ends', 'value': '2026-12-05T20:00:00Z', 'message': 'm1'},
+                                   {'subject': 'situation/meeting', 'attr': 'status', 'value': 'cancelled', 'message': 'm1'}]}
+        facts = analyze.validate(answer, [{'id': 'm1', 'at': '2026-09-18T12:00:00Z', 'who': 'x', 'text': ''}], context)
+        self.assertEqual([(o['attr'], o['value']) for o in facts['observations']], [('ends', '2026-12-05T20:00:00Z'), ('status', 'cancelled')])
+        self.assertTrue(any('under way' in n for n in facts['notes']))
+
+
         state = {'me': 'person/me', 'bodies': [{'id': 'person/sarah', 'name': 'Sarah', 'aliases': []}],
                  'schema': {'kinds': {'person': {'attrs': ['status', 'location'],
                                                  'notes': {'status': 'what they are doing right now, never a feeling'}}}}}
