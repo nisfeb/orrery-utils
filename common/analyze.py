@@ -41,6 +41,8 @@ KINDS = ('person', 'place', 'thing', 'org', 'situation', 'note', 'activity')
 #  schema, and then the rule below drops them like any other unlisted name.
 #  Named here only so the note says which of the two happened.
 SENSITIVE_ATTRS = ('health', 'income')
+#  attributes the prompt offers as a sink for feelings; never sent
+SINK_ATTRS = ('mood', 'feeling', 'feelings', 'emotion')
 ATTR_RE = re.compile(r'^[a-z0-9-]{1,48}$')
 
 SYSTEM = """You turn messages into facts for orrery, a model of one person's world.
@@ -52,6 +54,8 @@ Rules.
 Only state what the messages say or clearly imply. Never invent. When unsure, leave it out or lower the confidence.
 Use the existing bodies by id whenever a message refers to one of them, by name or alias. Create a new body only for a named person, place, thing or org, or for a situation (an event with participants) the messages describe.
 Use only the attribute names listed for that kind; an observation on any other name is dropped. When a kind has no attributes listed, use a short lowercase name. A health fact goes on "health" and a money fact on "income", never on a name of your own.
+Read the notes given with the attribute names: they say what each one means. A person's "status" is what they are doing or dealing with right now, in plain words, as an observer would put it: "on jury duty", "stranded, waiting for a tow", "travelling", "sick". It is never a feeling, a quote or a wish. A feeling goes under "mood", which the reader throws away, so that it never lands on status.
+Worked examples. "jury duty makes me want to scream", from Sarah: person/sarah.status = "on jury duty" (conf 80), person/sarah.mood = "frustrated" (conf 60, discarded). "car died on route 9, stranded waiting for a tow": status = "stranded, waiting for a tow", location = "Route 9", thing/subaru.status = "broken down". "ugh, Mondays": nothing.
 A situation body carries status ("open" or "closed"), participants (one observation per participant, value {"ref": ...}), location, started and ended. A situation happens once: a breakdown, a birthday, a delivery.
 An activity is something that repeats: a class, a practice, a standing appointment, a weekly meeting. It is one body of kind activity, with schedule ("Mon/Wed 18:00"), cadence ("weekly"), location, participants and organizer. An occurrence of an activity is never a new body: write the activity's "last" = the start of that occurrence, with "at" = that start, and "next" = the start of the following one when the message says it. A calendar reminder or notification for a repeating event is an occurrence of an activity, not a situation.
 A person is never an org. A payment request, a reminder or a note from a person names a person body; reuse the existing person when the name or the address matches, even when only the first name is on record.
@@ -147,10 +151,13 @@ def context_from_state(state, channel, action_kinds=('task',)):
             continue
         bodies.append({'id': b['id'], 'name': b.get('name', ''), 'aliases': list(b.get('aliases') or [])})
     attrs = {}
+    notes = {}
     for kind, spec in ((state or {}).get('schema') or {}).get('kinds', {}).items():
         if isinstance(spec, dict):
             attrs[kind] = list(spec.get('attrs') or [])
-    return {'bodies': bodies[:MAX_BODIES_IN_CONTEXT], 'attrs': attrs, 'me': (state or {}).get('me', 'person/me'),
+            if isinstance(spec.get('notes'), dict):
+                notes[kind] = {str(k): str(v) for k, v in spec['notes'].items() if isinstance(v, str)}
+    return {'bodies': bodies[:MAX_BODIES_IN_CONTEXT], 'attrs': attrs, 'notes': notes, 'me': (state or {}).get('me', 'person/me'),
             'channel': channel, 'action_kinds': list(action_kinds)}
 
 
@@ -160,6 +167,11 @@ def prompt(messages, context):
         lines.append('Attribute names by kind:')
         for kind, names in context['attrs'].items():
             lines.append('  %s: %s' % (kind, ', '.join(names)))
+    if context.get('notes'):
+        lines.append('What the attributes mean:')
+        for kind, notes in context['notes'].items():
+            for attr, text in notes.items():
+                lines.append('  %s.%s: %s' % (kind, attr, text))
     if context.get('action_kinds'):
         lines.append('Action kinds you may propose: ' + ', '.join(context['action_kinds']))
     lines.append('Existing bodies (id | name | aliases):')
@@ -350,6 +362,10 @@ def validate(answer, messages, context):
             continue
         if not ATTR_RE.match(attr):
             notes.append('dropped observation with a bad attr: ' + attr)
+            continue
+        if attr in SINK_ATTRS:
+            #  the prompt offers these so a feeling has somewhere to go that is not
+            #  status; they are thrown away here, quietly
             continue
         kind = subject.split('/', 1)[0]
         listed = (context.get('attrs') or {}).get(kind) or []

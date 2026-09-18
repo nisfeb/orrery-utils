@@ -68,7 +68,8 @@ class Validation(unittest.TestCase):
         self.assertEqual(len(rows), 5)
         #  person/me.mood is gone: the schema speaks for person and does not list it
         self.assertNotIn(('person/me', 'mood'), rows)
-        self.assertIn('dropped person/me.mood: not an attribute of person', self.facts['notes'])
+        self.assertNotIn('mood', [o['attr'] for o in self.facts['observations']])
+        self.assertFalse(any('mood' in n for n in self.facts['notes']))
         me = rows[('person/me', 'status')]
         self.assertEqual((me['at'], me['until'], me['conf'], me['message']),
                          ('2026-09-16T22:05:00Z', '2026-09-17T02:00:00Z', 90, 'telegram/1001/10'))
@@ -181,6 +182,20 @@ class Answers(unittest.TestCase):
             {'id': 'person/me', 'name': 'me', 'aliases': [], 'attrs': {}}], 'schema': {'kinds': {}}}
         ids = [b['id'] for b in analyze.context_from_state(state, 'mail')['bodies']]
         self.assertEqual(ids, ['situation/recent', 'situation/open', 'person/me'])
+
+    def test_notes_reach_the_prompt_and_the_sink_is_silent(self):
+        state = {'me': 'person/me', 'bodies': [{'id': 'person/sarah', 'name': 'Sarah', 'aliases': []}],
+                 'schema': {'kinds': {'person': {'attrs': ['status', 'location'],
+                                                 'notes': {'status': 'what they are doing right now, never a feeling'}}}}}
+        context = analyze.context_from_state(state, 'chat')
+        self.assertEqual(context['notes'], {'person': {'status': 'what they are doing right now, never a feeling'}})
+        m = analyze.FakeModel(json.dumps({'observations': [
+            {'subject': 'person/sarah', 'attr': 'status', 'value': 'on jury duty', 'conf': 80, 'message': 'm1'},
+            {'subject': 'person/sarah', 'attr': 'mood', 'value': 'frustrated', 'conf': 60, 'message': 'm1'}]}))
+        facts = analyze.analyze(m, [{'id': 'm1', 'at': '2026-09-18T12:00:00Z', 'who': 'person/sarah', 'text': 'jury duty makes me want to scream'}], context)
+        self.assertIn('person.status: what they are doing right now, never a feeling', m.asked[0])
+        self.assertEqual([(o['attr'], o['value']) for o in facts['observations']], [('status', 'on jury duty')])
+        self.assertEqual(facts['notes'], [])
 
     def test_context_from_state(self):
         state = {'me': 'person/me', 'bodies': [{'id': 'person/me', 'name': 'me', 'aliases': ['I']}],
