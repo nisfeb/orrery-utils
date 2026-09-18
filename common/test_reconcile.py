@@ -127,12 +127,12 @@ class Decisions(unittest.TestCase):
 class Participants(unittest.TestCase):
     def test_names_in_titles(self):
         n = reconcile.names_in
-        self.assertEqual(n('Adelaide- Ballet/Tap'), (['Adelaide'], None))
-        self.assertEqual(n('Rose and Linus- Opti Sail'), (['Rose', 'Linus'], None))
-        self.assertEqual(n('Magnus Birthday'), (['Magnus'], None))
-        self.assertEqual(n("Seamus's birthday party"), (['Seamus'], None))
-        self.assertEqual(n('Magnus Fencing Lesson'), ([], 'Magnus'))
-        self.assertEqual(n('Nutcracker rehearsal'), ([], 'Nutcracker'))
+        self.assertEqual(n('Mira- Ballet/Tap'), (['Mira'], None))
+        self.assertEqual(n('Theo and Juno- Opti Sail'), (['Theo', 'Juno'], None))
+        self.assertEqual(n('Felix Birthday'), (['Felix'], None))
+        self.assertEqual(n("Otto's birthday party"), (['Otto'], None))
+        self.assertEqual(n('Felix Fencing Lesson'), ([], 'Felix'))
+        self.assertEqual(n('Swan Lake rehearsal'), ([], 'Swan'))
         self.assertEqual(n('Ballet'), ([], 'Ballet'))
         self.assertEqual(n('gym'), ([], None))
 
@@ -142,25 +142,25 @@ class Participants(unittest.TestCase):
             b['kind'] = 'activity' if bid.startswith('activity/') else 'situation'
             return b
         state = {'bodies': [
-            {'id': 'person/me', 'kind': 'person', 'name': 'jackson', 'aliases': ['I'], 'attrs': {}, 'created': '2026-01-01T00:00:00Z'},
-            {'id': 'person/linus', 'kind': 'person', 'name': 'Linus Egan', 'aliases': [], 'attrs': {}, 'created': '2026-01-01T00:00:00Z'},
-            act('activity/adelaide-ballet-tap', 'Adelaide- Ballet/Tap', ['person/me']),
-            act('activity/rose-and-linus-opti-sail', 'Rose and Linus- Opti Sail'),
-            act('activity/magnus-fencing-lesson', 'Magnus Fencing Lesson'),
-            act('situation/magnus-birthday', 'Magnus Birthday'),
-            act('activity/nutcracker-rehearsal', 'Nutcracker rehearsal'),
-            act('situation/jackson-brave', 'Jackson Brave Together'),
+            {'id': 'person/me', 'kind': 'person', 'name': 'dana', 'aliases': ['I'], 'attrs': {}, 'created': '2026-01-01T00:00:00Z'},
+            {'id': 'person/juno', 'kind': 'person', 'name': 'Juno Quill', 'aliases': [], 'attrs': {}, 'created': '2026-01-01T00:00:00Z'},
+            act('activity/mira-ballet-tap', 'Mira- Ballet/Tap', ['person/me']),
+            act('activity/theo-and-juno-opti-sail', 'Theo and Juno- Opti Sail'),
+            act('activity/felix-fencing-lesson', 'Felix Fencing Lesson'),
+            act('situation/felix-birthday', 'Felix Birthday'),
+            act('activity/swan-lake-rehearsal', 'Swan Lake rehearsal'),
+            act('situation/dana-team-offsite', 'Dana Team Offsite'),
         ]}
         plan = reconcile.plan_participants(state)
-        self.assertEqual([c['id'] for c in plan['creates']], ['person/adelaide', 'person/magnus', 'person/rose'])
+        self.assertEqual([c['id'] for c in plan['creates']], ['person/felix', 'person/mira', 'person/theo'])
         rows = {(r['subject'], r['value']['ref']) for r in plan['rows']}
-        self.assertEqual(rows, {('activity/adelaide-ballet-tap', 'person/adelaide'),
-                                ('activity/rose-and-linus-opti-sail', 'person/rose'),
-                                ('activity/rose-and-linus-opti-sail', 'person/linus'),
-                                ('activity/magnus-fencing-lesson', 'person/magnus'),
-                                ('situation/magnus-birthday', 'person/magnus'),
-                                ('situation/jackson-brave', 'person/me')})
-        self.assertEqual(plan['unsure'], ['Nutcracker'])
+        self.assertEqual(rows, {('activity/mira-ballet-tap', 'person/mira'),
+                                ('activity/theo-and-juno-opti-sail', 'person/theo'),
+                                ('activity/theo-and-juno-opti-sail', 'person/juno'),
+                                ('activity/felix-fencing-lesson', 'person/felix'),
+                                ('situation/felix-birthday', 'person/felix'),
+                                ('situation/dana-team-offsite', 'person/me')})
+        self.assertEqual(plan['unsure'], ['Swan'])
 
 
 class Times(unittest.TestCase):
@@ -194,6 +194,7 @@ class Times(unittest.TestCase):
             sit('situation/preop', 'PreOp appointment', '2026-09-01T13:00:00Z', '2026-09-01T14:00:00Z'),
             sit('situation/dinner', 'Dinner', '2026-09-19T23:00:00Z', '2026-09-20T01:00:00Z'),
             sit('situation/old-open', 'An old thing', '2026-07-01T00:00:00Z'),
+            sit('situation/long-project', 'A long project', '2026-07-01T00:00:00Z', '2026-10-15T00:00:00Z'),
             sit('situation/fresh-open', 'A fresh thing', '2026-09-16T22:00:00Z'),
             {'id': 'situation/done', 'kind': 'situation', 'name': 'Done', 'aliases': [], 'created': '2026-08-01T00:00:00Z',
              'attrs': {'status': {'value': 'closed'}, 'ended': {'value': '2026-08-02T00:00:00Z'}}},
@@ -201,7 +202,7 @@ class Times(unittest.TestCase):
              'attrs': {'last': {'value': '2026-09-01T00:00:00Z'}}},
         ]}
         for b in state['bodies']:
-            b['created'] = b['id'] == 'situation/old-open' and '2026-07-01T00:00:00Z' or b.get('created', '2026-09-01T00:00:00Z')
+            b['created'] = b['id'] in ('situation/old-open', 'situation/long-project') and '2026-07-01T00:00:00Z' or b.get('created', '2026-09-01T00:00:00Z')
         plans = {p['id']: p for p in reconcile.plan_retire(state, None, 30, self.NOW)}
         self.assertEqual(sorted(plans), ['situation/old-open', 'situation/preop', 'situation/walk'])
         self.assertEqual(plans['situation/walk']['at'], '2026-09-10T15:00:00Z')

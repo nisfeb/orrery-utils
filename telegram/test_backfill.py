@@ -47,6 +47,11 @@ class Export(unittest.TestCase):
         self.assertEqual([m['mid'] for m in fam], [41])
         self.assertEqual(backfill.messages_of(self.chats['Deals Channel'], self.cfg, self.since, 0), [])
 
+    def test_an_export_chat_matches_the_bot_chat_it_is(self):
+        cfg = {'chats': [1001, -555001, -1001234567890]}
+        self.assertEqual([backfill.read_by_bot(c, cfg) for c in ('1001', '555001', '1234567890', '2002')],
+                         [True, True, True, False])
+
     def test_windows_split_by_count_and_size(self):
         msgs = [{'mid': i, 'at': self.since, 'who': 'person/me', 'text': 'x' * 100} for i in range(30)]
         runs = list(backfill.windows(msgs))

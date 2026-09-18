@@ -1,0 +1,57 @@
+{
+  "about": "Telegram bot: facts from your chats and groups, approved messages out",
+  "run": [
+    "bot.py",
+    "--config",
+    "config.json",
+    "--loop"
+  ],
+  "secrets": {
+    "telegram.token": "config.json",
+    "orrery.token": "config.json",
+    "model.api_key": "../config.json"
+  },
+  "jobs": {
+    "dry run": {
+      "cmd": [
+        "bot.py",
+        "--config",
+        "config.json",
+        "--dry-run"
+      ]
+    },
+    "backfill, dry run": {
+      "cmd": [
+        "backfill.py",
+        "--config",
+        "config.json",
+        "--export",
+        "{export}",
+        "--bot-chats",
+        "--last",
+        "{last}",
+        "--dry-run"
+      ],
+      "ask": {
+        "export": "Telegram Desktop's result.json",
+        "last": "messages per chat"
+      }
+    },
+    "backfill": {
+      "cmd": [
+        "backfill.py",
+        "--config",
+        "config.json",
+        "--export",
+        "{export}",
+        "--bot-chats",
+        "--since",
+        "{since}"
+      ],
+      "ask": {
+        "export": "Telegram Desktop's result.json",
+        "since": "from day, YYYY-MM-DD"
+      }
+    }
+  }
+}

@@ -2,9 +2,9 @@
 
 Both directions. People you name tell the bot facts in a short command grammar, in a private chat with the bot or in a group it sits in, and the bot sends them to orrery with a scoped key. It also delivers approved actions of kind `message` addressed via Telegram, to the people you mapped, and reports done or failed.
 
-Standard library only. One file, `bot.py`. It uses the Bot API with long polling, so it runs anywhere with outbound HTTPS and needs no public address.
+Standard library only: `bot.py`, and `backfill.py` for the past. It uses the Bot API with long polling, so it runs anywhere with outbound HTTPS and needs no public address.
 
-A bot sees what is sent to it: private chats with it, and groups it is a member of. It does not see your own conversations with other people. Reading those needs a user session (Telethon or the like), which is a different program with a different risk; this one is the capture channel and the delivery channel.
+A bot sees what is sent to it: private chats with it, and groups it is a member of. Your own private conversations with other people reach it only through a Telegram Business connection, which is below under Your chats, live; groups you are in but the bot is not stay out of reach, and reading those needs a user session (Telethon or the like), which is a different program with a different risk.
 
 ## The grammar
 
@@ -35,11 +35,23 @@ The bot can only message people who have started a chat with it or groups it is 
 
 ## The model
 
-With a `model` block in the config (the one from `config.example.json`, LM Studio at `http://localhost:1234/v1`), free text from a known person goes to the local model through `../common/analyze.py` with the sender's body, the message time and the bodies the ship knows, and comes back as facts the bot sends under the message's pointer. Commands never reach the model; the grammar answers them first. Everything the model answers is validated before it is sent, and what fails is dropped with a note on the log. Remove the block, or set `enabled` to false, for the grammar alone.
+With a `model` block, in the config or in the repo's shared `config.json` through `"include": "../config.json"` (see the root README), free text from a known person goes to the model through `../common/analyze.py` with the sender's body, the message time, the chat's last four messages and the bodies the ship knows, and comes back as facts the bot sends under the message's pointer. Commands never reach the model; the grammar answers them first. Everything the model answers is validated before it is sent, and what fails is dropped with a note on the log. What the model writes from chat must also trace back to its message, the same rules as Talon's extractor, because a small model writes what it remembers as readily as what it read: a question never reaches the model, a fact is about a body the message names or its author, and about its author only when the message speaks for them ("grandpa's flight got cancelled" from Sarah is not about Sarah: it points at someone else and says nothing in the first person), a value other than a `status` or `health` is in the message's words (a reference in a name the message uses), and a `status` or `health`, which are paraphrases by design, is dropped when it echoes the earlier messages and not this one. A `status` that names a diagnosis is a medical fact, which goes under `health` and nowhere else: it is moved there when the key's schema lists `health`, and dropped when it does not, because a status is readable by every key. A new body no kept fact is about is dropped too, and a fact the model dates to midnight of the message's day takes the message's time. Remove the block, or set `enabled` to false, for the grammar alone.
+
+## Your chats, live
+
+With Telegram Premium you can connect the bot to your own account through Telegram Business, and it then gets every message in the private chats you pick, yours and the other person's, as they arrive, on the same long poll as everything else. No export, no second program.
+
+1. BotFather: `/mybots`, your bot, Bot Settings, Secretary Mode (older BotFathers call it Business Mode), on.
+2. Telegram: Settings, Telegram Business, Chatbots, add the bot by its username, and choose the chats it may see. It needs no permission to reply or manage messages and never uses one.
+3. Put the other person's user id in `chats` (in a private chat the chat id is their user id) and map both of you in `people`, as for any other chat.
+
+A message there goes through the same grammar and the same model as one sent to the bot, with the sender as `<you>`, and its source is `telegram/<their user id>/<message id>`, the same pointer an export of that chat gives it, so the backfill and the live bot agree. It is never replied to, not even with the one-line error, because a reply by chat id would land in that person's own chat with the bot. The bot reads only connections that belong to an account in `people`, asked of Telegram with `getBusinessConnection`, so someone else who connects the bot to their account feeds it nothing. Groups are not part of Telegram Business.
+
+Run the bot with `--loop` and the backfill once, for what came before the connection.
 
 ## Backfill
 
-A bot cannot read your past conversations. The past comes from Telegram Desktop: Settings, Advanced, Export Telegram data, JSON, which writes `result.json`. `backfill.py` reads it:
+A bot cannot read what came before it was connected. The past comes from Telegram Desktop: Settings, Advanced, Export Telegram data, JSON, which writes `result.json`. `backfill.py` reads it:
 
 ```bash
 python3 backfill.py --config config.json --export ~/Downloads/Telegram\ Desktop/DataExport/result.json --months 6 --dry-run
@@ -47,7 +59,9 @@ python3 backfill.py --config config.json --export result.json --months 6
 python3 backfill.py --config config.json --export result.json --since 2026-01-01 --chat Sarah --chat family
 ```
 
-It reads runs of six messages (`window` in the config) with the previous two as context, keeps the messages from the people in `people` (the export's `user<id>` senders carry the same ids as the Bot API), inside the window you ask for, and hands them to the model in runs of consecutive messages per chat, at most twelve messages or about three thousand characters, so a reply is read against what it answers. Each fact carries `telegram/<export chat id>/<message id>` as its source and the message's own time as `at`. The run keeps its place per chat in `state.json` under `backfill`, so an interrupted run resumes without asking the model twice. Channels and service messages are skipped; so is anyone not in `people`.
+`--bot-chats` reads only the chats in `chats`, the ones the live bot reads, and `--last 100` only the last hundred messages of each; together, with `--dry-run`, they are a cheap way to see what a model makes of your recent conversations. Without `--bot-chats` the backfill reads every chat in which someone in `people` speaks, you included. An export holds groups only when Telegram Desktop's export had them ticked.
+
+It reads runs of six messages (`window` in the config) with the previous two as context, keeps the messages from the people in `people` (the export's `user<id>` senders carry the same ids as the Bot API), inside the window you ask for, and hands them to the model in runs of consecutive messages per chat, at most six messages (`window`) or about three thousand characters, so a reply is read against what it answers. Each fact carries `telegram/<export chat id>/<message id>` as its source and the message's own time as `at`. The run keeps its place per chat in `state.json` under `backfill`, so an interrupted run resumes without asking the model twice. Channels and service messages are skipped; so is anyone not in `people`.
 
 ## The key
 
@@ -62,9 +76,9 @@ curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api
 
 ## Setting up the bot
 
-1. Make a bot with BotFather and keep its token in `TELEGRAM_TOKEN`.
+1. Make a bot with BotFather and put its token in `telegram.token` in `config.json` (or in the environment variable `telegram.token_env` names, `TELEGRAM_TOKEN` by default; a daemon run by the console reads only the file).
 2. For a group, add the bot and turn privacy mode off with BotFather (`/setprivacy`), or it sees only commands addressed to it.
-3. Find the ids, in two passes, because the chat test returns before the sender test: with `chats` empty, every message is ignored as `chat <id> is not in chats` and you learn only chat ids; fill `chats` in, run again, and the same messages now report `sender <id> is not in people` and give you the user ids. Both passes are `python3 bot.py --config config.json --dry-run`, which confirms nothing, so the same updates come back each time. Set `"enabled": false` in the `model` block to do this without LM Studio running; `bot.py` has no `--no-model` flag.
+3. Find the ids, in two passes, because the chat test returns before the sender test: with `chats` empty, every message is ignored as `chat <id> is not in chats` and you learn only chat ids; fill `chats` in, run again, and the same messages now report `sender <id> is not in people` and give you the user ids. Both passes are `python3 bot.py --config config.json --dry-run`, which confirms nothing, so the same updates come back each time. Put `"model": {"enabled": false}` in this config to do this without calling the model (it overrides a shared block); `bot.py` has no `--no-model` flag.
 4. Map them in `config.json`: `people` is Telegram user id to body id; `chats` is the chats it listens in. A message from anyone else, or in any other chat, is ignored and logged.
 
 ```json
@@ -86,25 +100,25 @@ The person bodies must exist on the ship; the bot never creates a person from a 
 cd telegram
 python3 -m unittest                                                              # grammar and delivery, no network
 python3 bot.py --dry-run --config fixtures/config.json --updates fixtures/updates.json   # the fixture, printed
-TELEGRAM_TOKEN=... python3 bot.py --config config.json --dry-run                 # pending updates, printed, nothing confirmed
-TELEGRAM_TOKEN=... ORRERY_TOKEN=... python3 bot.py --config config.json          # one pass, then exit
-TELEGRAM_TOKEN=... ORRERY_TOKEN=... python3 bot.py --config config.json --loop   # long poll for ever
+python3 bot.py --config config.json --dry-run                 # pending updates, printed, nothing confirmed
+python3 bot.py --config config.json                           # one pass, then exit
+python3 bot.py --config config.json --loop                    # long poll for ever
 ```
 
-The cursor is Telegram's update offset in `state.json`, advanced one update at a time after its facts land, so a refused batch stops the pass before the message that failed and the next pass retries it. A dry run confirms nothing, so the same updates come back on the next real pass. Run `--loop` under a supervisor that restarts it.
+Under `--loop` the model's view of the ship (its bodies and schema) is read again every ten minutes, so a bot that runs for days sees the bodies the other readers made since. The cursor is Telegram's update offset in `state.json`, advanced one update at a time after its facts land, so a refused batch, or a model that did not answer (unreachable, no key, no credit, rate limited), stops the pass before that message and the next pass retries it. A dry run confirms nothing, so the same updates come back on the next real pass. A dropped connection to Telegram (a reset, a timeout, a 5xx, a rate limit) loses nothing, since unconfirmed updates wait on Telegram's side, and is asked again after five seconds without exiting. `--loop` exits on a stop like the ones above, or on a token Telegram refuses; the console (`../console.py`) runs it as a systemd unit that starts it again 30 seconds later.
 
 ## What stays here
 
-Every message, every sender's name, the bot token. The ship gets the facts the grammar produced and the chat and message ids that point back at them.
+Every message, every sender's name, the bot token. The ship gets the facts and the chat and message ids that point back at them. The model's host reads the text of the free-text messages and the four before each: your machine with a local model, the provider with a hosted one.
 
 ## Fixtures
 
-`fixtures/updates.json` is a `getUpdates` answer with twelve updates: the stranded-car story typed as commands by two people, an unknown sender, a chat the bot does not listen in, free text, an edit, and a wrong command. `fixtures/config.json` maps two people and two chats, and `fixtures/expected.json` records the facts or the note for every update. `test_bot.py` checks that, the name lookup against a stub ship, the value grammar and the delivery of message actions.
+`fixtures/updates.json` is a `getUpdates` answer with twelve updates: the stranded-car story typed as commands by two people, an unknown sender, a chat the bot does not listen in, free text, an edit, and a wrong command. `fixtures/config.json` maps two people and two chats, and `fixtures/expected.json` records the facts or the note for every update. `test_bot.py` checks that, the name lookup against a stub ship, the value grammar, the context the model is shown, the rules its answers are held to, Telegram Business messages and the delivery of message actions; `test_backfill.py` checks the export reader.
 
 ## Limits
 
-- The grammar is deliberate, so what lands on the ship from a command is what someone meant to say. Free text is only as good as the local model, and reaches the ship only when a `model` block is enabled.
-- `/obs` with a name needs the ship to resolve it; a dry run cannot, and says so.
+- The grammar is deliberate, so what lands on the ship from a command is what someone meant to say. Free text is only as good as the model, less the rules above, and reaches the ship only when a `model` block is enabled.
+- `/obs` with a name needs the ship to resolve it; a dry run without an orrery key cannot, and says so.
 - One bot, one config, one ship. A family with two ships runs two bots, or shares bodies between ships the orrery way.
 - `at` is the message's time, so a message stamped ahead of the ship's clock is a future fact on the ship until that time passes.
 
