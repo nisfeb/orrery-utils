@@ -216,11 +216,11 @@ def plan_activities(state, min_occurrences=3, reader=None):
                 if isinstance(p, dict) and p.get('ref') and p['ref'] not in participants:
                     participants.append(p['ref'])
         if ahead:
-            #  next: the nearest occurrence still ahead, one row, gone once it has ended
+            #  next: the nearest occurrence still ahead, one row, gone once it has
+            #  ended, or a day after it started when no end is known
             at, ended, src = min(ahead)
-            row = {'subject': aid, 'attr': 'next', 'value': at, 'at': now, 'conf': 90, 'source': src}
-            if ended:
-                row['until'] = ended
+            row = {'subject': aid, 'attr': 'next', 'value': at, 'at': now, 'conf': 90, 'source': src,
+                   'until': ended or (datetime.fromisoformat(at.replace('Z', '+00:00')) + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ')}
             obs.append(row)
         first = min(starts) if starts else None
         base_at = first or now
@@ -507,6 +507,20 @@ def plan_times(state, reader, now=None):
     now = now or datetime.now(timezone.utc).replace(microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
     retract, write = [], []
     for b in state.get('bodies', []):
+        if b.get('kind') == 'activity':
+            #  a next that has passed is stale: retract it, and point at the nearest
+            #  occurrence still ahead among the activity's rows
+            code, view = reader('GET', '/body/' + b['id'])
+            rows = [o for o in (view or {}).get('observations', []) if isinstance(view, dict) and o.get('status') != 'retracted']
+            ahead = sorted(o['value'] for o in rows if o['attr'] == 'last' and isinstance(o.get('value'), str) and o['value'] > now)
+            for o in rows:
+                if o['attr'] == 'next' and isinstance(o.get('value'), str) and o['value'] <= now:
+                    retract.append((o['id'], 'reconcile: this occurrence has passed'))
+                    if ahead:
+                        write.append({'subject': b['id'], 'attr': 'next', 'value': ahead[0], 'at': now, 'conf': 90,
+                                      'until': (datetime.fromisoformat(ahead[0].replace('Z', '+00:00')) + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                      'source': {'kind': 'reconcile', 'id': 'times/' + o['id']}})
+            continue
         if b.get('kind') != 'situation':
             continue
         code, view = reader('GET', '/body/' + b['id'])

@@ -81,6 +81,9 @@ class Activities(unittest.TestCase):
         nxt = [o for o in plan['observations'] if o['attr'] == 'next']
         self.assertEqual(len(nxt), 1)
         self.assertEqual((nxt[0]['value'], nxt[0]['until']), ('2099-01-01T18:00:00Z', '2099-01-01T19:00:00Z'))
+        bare = {'bodies': [sit('situation/y-' + str(i), 'Choir', '2099-01-0%dT18:00:00Z' % (i + 1)) for i in range(3)]}
+        n2 = [o for o in reconcile.plan_activities(bare)[0]['observations'] if o['attr'] == 'next']
+        self.assertEqual(n2[0]['until'], '2099-01-02T18:00:00Z')
         self.assertEqual(len([o for o in plan['observations'] if o['attr'] == 'last']), 3)
 
     def test_one_offs_and_trips_stay(self):
@@ -177,6 +180,18 @@ class Times(unittest.TestCase):
         retract, write = reconcile.plan_times(state, reader, '2026-09-18T12:00:00Z')
         self.assertEqual([r[0] for r in retract], ['o1', 'o3', 'o5'])
         self.assertEqual([(w['attr'], w['value'], w['at']) for w in write], [('ends', '2026-12-05T20:00:00Z', '2026-09-10T00:00:00Z'), ('starts', '2026-12-05T18:00:00Z', '2026-09-18T12:00:00Z')])
+
+    def test_a_stale_next_is_replaced(self):
+        state = {'bodies': [{'id': 'activity/gym', 'kind': 'activity', 'name': 'Gym', 'aliases': [], 'attrs': {}, 'created': '2026-09-01T00:00:00Z'}]}
+
+        def reader(method, path):
+            return 200, {'observations': [
+                {'id': 'n1', 'attr': 'next', 'value': '2026-09-18T13:00:00Z', 'at': '2026-09-17T00:00:00Z', 'status': 'live'},
+                {'id': 'l1', 'attr': 'last', 'value': '2026-09-18T13:00:00Z', 'at': '2026-09-18T13:00:00Z', 'status': 'live'},
+                {'id': 'l2', 'attr': 'last', 'value': '2026-09-25T13:00:00Z', 'at': '2026-09-25T13:00:00Z', 'status': 'live'}]}
+        retract, write = reconcile.plan_times(state, reader, '2026-09-18T14:00:00Z')
+        self.assertEqual([r[0] for r in retract], ['n1'])
+        self.assertEqual([(w['attr'], w['value'], w['until']) for w in write], [('next', '2026-09-25T13:00:00Z', '2026-09-26T13:00:00Z')])
 
     def test_retire_reads_the_schedule(self):
         b = sit('situation/past', 'Past thing')
