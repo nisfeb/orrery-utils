@@ -42,6 +42,8 @@ curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api
 }'
 ```
 
+Keys can live in a `.env` beside the config, git-ignored, one `NAME=value` per line (`ORRERY_TOKEN=...`, `ANTHROPIC_API_KEY=...`); `run.py` reads it, and nothing is typed on a command line.
+
 ## Running it
 
 ```bash
