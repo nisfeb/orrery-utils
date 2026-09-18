@@ -14,7 +14,7 @@ A bot sees what is sent to it: private chats with it, and groups it is a member 
 | `/status <text>` | `<you>.status = <text>`. `/status -` clears it |
 | `/obs <subject> <attr> <value>` | any fact. The subject is a body id, `me`, or a name the ship resolves to exactly one body. `null` clears, a number is a number, a body id is a reference, `true` and `false` are booleans, the rest is text |
 | `/task <title> [due YYYY-MM-DD]` | an action of kind `task`, approved on the spot when the policy auto-approves tasks |
-| anything else | the `classify_with_model` hook, which does nothing today. This is where a local model turns "car died on route 9, stranded waiting for a tow" into facts |
+| anything else | the model, with the chat's last four free-text messages as context, so "yes, at 8" is read against what it answers; facts come only from the new message |
 
 `<you>` is the body the config maps your Telegram user id to, so Sarah typing `/at place/home` in the family group puts Sarah at home, and you typing it puts you there. `at` is the message's time. `source` is `{"kind": "chat", "id": "telegram/<chat id>/<message id>"}`. The text of a message is never sent to the ship; the pointer is.
 
@@ -47,7 +47,7 @@ python3 backfill.py --config config.json --export result.json --months 6
 python3 backfill.py --config config.json --export result.json --since 2026-01-01 --chat Sarah --chat family
 ```
 
-It keeps the messages from the people in `people` (the export's `user<id>` senders carry the same ids as the Bot API), inside the window you ask for, and hands them to the model in runs of consecutive messages per chat, at most twelve messages or about three thousand characters, so a reply is read against what it answers. Each fact carries `telegram/<export chat id>/<message id>` as its source and the message's own time as `at`. The run keeps its place per chat in `state.json` under `backfill`, so an interrupted run resumes without asking the model twice. Channels and service messages are skipped; so is anyone not in `people`.
+It reads runs of six messages (`window` in the config) with the previous two as context, keeps the messages from the people in `people` (the export's `user<id>` senders carry the same ids as the Bot API), inside the window you ask for, and hands them to the model in runs of consecutive messages per chat, at most twelve messages or about three thousand characters, so a reply is read against what it answers. Each fact carries `telegram/<export chat id>/<message id>` as its source and the message's own time as `at`. The run keeps its place per chat in `state.json` under `backfill`, so an interrupted run resumes without asking the model twice. Channels and service messages are skipped; so is anyone not in `people`.
 
 ## The key
 

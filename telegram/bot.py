@@ -31,6 +31,8 @@ import analyze  # noqa: E402
 #  the analyst, set from the config at the start of a run; None means the grammar only
 MODEL = None
 CONTEXT = None
+#  how many earlier messages of a chat the model sees, as context, with each new one
+RECENT = 4
 
 SOURCE = 'chat'
 PLATFORM = 'telegram'
@@ -240,8 +242,9 @@ def subject_of(word, sender_body, ship, facts):
     return None
 
 
-def handle(msg, cfg, ship):
-    """Facts for one Telegram message, or notes on why there are none."""
+def handle(msg, cfg, ship, recent=None):
+    """Facts for one Telegram message, or notes on why there are none. recent
+    is the chat's last few free-text messages, shown to the model as context."""
     facts = Facts()
     chat = msg.get('chat') or {}
     sender = msg.get('from') or {}
@@ -296,7 +299,7 @@ def handle(msg, cfg, ship):
     elif cmd.startswith('/'):
         facts.refuse('commands: /at, /status, /obs, /task')
     else:
-        classify_with_model(msg, sender_body, src, at, facts, ship)
+        classify_with_model(msg, sender_body, src, at, facts, ship, recent or [])
     return facts
 
 
@@ -309,14 +312,16 @@ def context_for(ship):
     return CONTEXT
 
 
-def classify_with_model(msg, sender_body, src, at, facts, ship):
+def classify_with_model(msg, sender_body, src, at, facts, ship, recent=()):
     """Free text from a known person goes to the local model with the
-    sender's body, the source pointer and the message time. The model sees
-    the text; the ship gets the facts and the pointer."""
+    sender's body, the source pointer, the message time and the chat's last
+    few messages as context. The model sees the text; the ship gets the
+    facts and the pointer, and only for the new message."""
     if MODEL is None:
         return None
     ctx = context_for(ship)
-    got = analyze.analyze(MODEL, [{'id': src['id'], 'at': iso(at), 'who': sender_body, 'text': str(msg.get('text') or '')}], ctx)
+    window = [dict(m, context=True) for m in recent] + [{'id': src['id'], 'at': iso(at), 'who': sender_body, 'text': str(msg.get('text') or '')}]
+    got = analyze.analyze(MODEL, window, ctx)
     facts.notes.extend(got['notes'])
     bodies, observations, actions = analyze.to_batch(got, SOURCE)
     for b in bodies:
@@ -449,12 +454,28 @@ def save_state(path, state):
     os.replace(tmp, path)
 
 
+def remember(state, msg, sender_body):
+    """Keep a chat's last RECENT free-text messages in the state, as the
+    context the next one is read with."""
+    chat_id = str((msg.get('chat') or {}).get('id', ''))
+    text = str(msg.get('text') or '').strip()
+    if not text or text.startswith('/') or not sender_body:
+        return
+    ring = state.setdefault('recent', {}).setdefault(chat_id, [])
+    ring.append({'id': '%s/%s/%s' % (PLATFORM, chat_id, msg.get('message_id', '')),
+                 'at': iso(datetime.fromtimestamp(int(msg.get('date', 0) or 0), timezone.utc)),
+                 'who': sender_body, 'text': text[:2000]})
+    del ring[:-RECENT]
+
+
 def one_pass(cfg, ship, tg, updates, state, state_path, dry):
     for u in updates:
         uid = u.get('update_id')
         msg = u.get('message')
         if isinstance(msg, dict):
-            facts = handle(msg, cfg, ship)
+            chat_id = str((msg.get('chat') or {}).get('id', ''))
+            facts = handle(msg, cfg, ship, state.get('recent', {}).get(chat_id, []))
+            remember(state, msg, cfg.get('people', {}).get(str((msg.get('from') or {}).get('id', ''))))
             print('#', uid, '|', ' ; '.join(facts.notes) or ('nothing' if facts.empty() else 'facts'))
             if not facts.empty() and not send(ship, facts):
                 print('stopping before update %s so the next pass retries it' % uid, file=sys.stderr)

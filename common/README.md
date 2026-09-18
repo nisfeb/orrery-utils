@@ -17,7 +17,7 @@ allowed through even though the schema does not list them. A kind the schema is 
 still takes any short lowercase name.
 4. `to_batch` turns the facts into an observe batch and a list of actions with each row's `source` pointer set from its message id, the caller's source kind and nothing else.
 
-A message window is one conversation, oldest first: one mail, or a run of consecutive Telegram messages, so a reply can be read against what it answers.
+A message window is one conversation, oldest first: one mail, or a run of consecutive Telegram messages, so a reply can be read against what it answers. Earlier messages of the conversation ride along marked `"context": true`: the prompt shows them under their own heading, the model is told to write facts only from the new ones, and `validate` drops any fact or action attributed to a context message, since those facts exist already.
 
 ## Using it from a reader
 

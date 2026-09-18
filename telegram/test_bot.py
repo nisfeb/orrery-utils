@@ -117,6 +117,20 @@ class WithModel(unittest.TestCase):
         self.assertIn('home now, car is at the shop', bot.MODEL.asked[0])
         self.assertIn('person/sarah | Sarah | wife', bot.MODEL.asked[0])
 
+    def test_the_last_messages_of_a_chat_ride_along_as_context(self):
+        cfg = load('config.json')
+        state = {}
+        ups = [{'update_id': 1, 'message': {'message_id': 1, 'date': 1789660800, 'chat': {'id': 1001}, 'from': {'id': 1001}, 'text': 'jury duty tomorrow'}},
+               {'update_id': 2, 'message': {'message_id': 2, 'date': 1789660860, 'chat': {'id': 1001}, 'from': {'id': 1001}, 'text': '/status waiting'}},
+               {'update_id': 3, 'message': {'message_id': 3, 'date': 1789660920, 'chat': {'id': 1001}, 'from': {'id': 1001}, 'text': 'still here, want to scream'}}]
+        bot.one_pass(cfg, self.KnowingShip(), bot.NoTelegram(), ups, state, '/dev/null', True)
+        self.assertEqual(len(bot.MODEL.asked), 2)
+        self.assertNotIn('context', bot.MODEL.asked[0])
+        self.assertIn('--- context telegram/1001/1', bot.MODEL.asked[1])
+        self.assertIn('jury duty tomorrow', bot.MODEL.asked[1])
+        self.assertNotIn('/status waiting', bot.MODEL.asked[1])
+        self.assertEqual([m['id'] for m in state['recent']['1001']], ['telegram/1001/1', 'telegram/1001/3'])
+
     def test_commands_never_reach_the_model(self):
         outcomes(load('config.json'), self.KnowingShip())
         self.assertEqual(len(bot.MODEL.asked), 1)

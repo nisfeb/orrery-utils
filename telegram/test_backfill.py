@@ -50,7 +50,11 @@ class Export(unittest.TestCase):
     def test_windows_split_by_count_and_size(self):
         msgs = [{'mid': i, 'at': self.since, 'who': 'person/me', 'text': 'x' * 100} for i in range(30)]
         runs = list(backfill.windows(msgs))
-        self.assertEqual([len(r) for r in runs], [12, 12, 6])
+        self.assertEqual([len(r) for r in runs], [6, 6, 6, 6, 6])
+        self.assertEqual([len(r) for r in backfill.windows(msgs, 12)], [12, 12, 6])
+        pairs = list(backfill.with_context(backfill.windows(msgs)))
+        self.assertEqual([len(e) for e, r in pairs], [0, 2, 2, 2, 2])
+        self.assertEqual([m['mid'] for m in pairs[1][0]], [4, 5])
         big = [{'mid': i, 'at': self.since, 'who': 'person/me', 'text': 'y' * 2000} for i in range(3)]
         self.assertEqual([len(r) for r in backfill.windows(big)], [1, 1, 1])
         self.assertEqual(list(backfill.windows([])), [])

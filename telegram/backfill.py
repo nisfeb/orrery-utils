@@ -27,8 +27,9 @@ import bot  # noqa: E402
 
 SOURCE = 'chat'
 PLATFORM = 'telegram'
-WINDOW_MESSAGES = 12
+WINDOW_MESSAGES = 6
 WINDOW_CHARS = 3000
+CARRY = 2
 
 MODEL = None
 
@@ -98,27 +99,41 @@ def messages_of(chat, cfg, since, done_after):
     return out
 
 
-def windows(msgs):
-    """Runs of consecutive messages, each at most WINDOW_MESSAGES long and
-    about WINDOW_CHARS of text."""
-    run, size = [], 0
+def windows(msgs, size=None):
+    """Runs of consecutive messages, each at most size (WINDOW_MESSAGES) long
+    and about WINDOW_CHARS of text."""
+    size = size or WINDOW_MESSAGES
+    run, chars = [], 0
     for m in msgs:
-        if run and (len(run) >= WINDOW_MESSAGES or size + len(m['text']) > WINDOW_CHARS):
+        if run and (len(run) >= size or chars + len(m['text']) > WINDOW_CHARS):
             yield run
-            run, size = [], 0
+            run, chars = [], 0
         run.append(m)
-        size += len(m['text'])
+        chars += len(m['text'])
     if run:
         yield run
 
 
+def with_context(runs, carry=None):
+    """Each run paired with the tail of the run before it, as context: a
+    reply at the start of a window still has what it answers."""
+    carry = CARRY if carry is None else carry
+    prev = []
+    for run in runs:
+        yield prev[-carry:] if carry else [], run
+        prev = run
+
+
 # ==  the run
 
-def facts_for(window, chat_id, context):
-    """The analyst's facts for one window, as bot.Facts, with source pointers."""
+def facts_for(window, chat_id, context, earlier=()):
+    """The analyst's facts for one window, as bot.Facts, with source pointers;
+    earlier messages ride along as context and yield no facts."""
     facts = bot.Facts()
-    msgs = [{'id': '%s/%s/%s' % (PLATFORM, chat_id, m['mid']), 'at': bot.iso(m['at']), 'who': m['who'], 'text': m['text']}
-            for m in window]
+    msgs = [{'id': '%s/%s/%s' % (PLATFORM, chat_id, m['mid']), 'at': bot.iso(m['at']), 'who': m['who'], 'text': m['text'], 'context': True}
+            for m in earlier]
+    msgs += [{'id': '%s/%s/%s' % (PLATFORM, chat_id, m['mid']), 'at': bot.iso(m['at']), 'who': m['who'], 'text': m['text']}
+             for m in window]
     got = analyze.analyze(MODEL, msgs, context)
     facts.notes.extend(got['notes'])
     bodies, observations, actions = analyze.to_batch(got, SOURCE)
@@ -174,10 +189,11 @@ def run(argv=None):
         chat_id = str(chat.get('id', ''))
         msgs = messages_of(chat, cfg, since, int(place.get(chat_id, 0)))
         print('# chat %s (%s): %d message(s) to read' % (name, chat_id, len(msgs)))
-        for n, window in enumerate(windows(msgs)):
+        size = int(cfg.get('window', WINDOW_MESSAGES))
+        for n, (earlier, window) in enumerate(with_context(windows(msgs, size))):
             if n and n % 10 == 0:
                 context = analyze.context_from_state(ship.state() if hasattr(ship, 'state') else {}, SOURCE)
-            facts = facts_for(window, chat_id, context)
+            facts = facts_for(window, chat_id, context, earlier)
             span = '%s..%s' % (window[0]['at'].strftime('%Y-%m-%d'), window[-1]['at'].strftime('%Y-%m-%d'))
             print('#  ', span, '%d msg' % len(window), '|', ' ; '.join(facts.notes) or ('nothing' if facts.empty() else
                   '%d bodies, %d observations, %d actions' % (len(facts.bodies), len(facts.observations), len(facts.actions))))

@@ -42,7 +42,11 @@ Medical facts go under `health`, money facts under `income`, and nowhere else. B
 
 `status` on a person is what they are doing or dealing with right now, in plain words: "on jury duty", "stranded, waiting for a tow", "travelling", "sick". Never a feeling, a quote or a wish. The schema's `notes` block says so for every attribute that needs saying; read it from the state view and put it in your prompt. Give feelings a sink the client throws away (`mood`), so a small model has somewhere to put "want to scream" that is not `status`. Small models follow a worked example better than a rule; carry two.
 
-## 9. Replay-safe by construction
+## 9. Read a message with the ones before it
+
+A message alone often says nothing: "yes, at 8", "still here", "ugh". Hand a small model the last three to five messages of the same conversation as context with each new one, and it reads the new one right. Two rules make that safe. The earlier messages are marked as context, and facts are written only from the new ones; anything the model writes from a context message is thrown away, because those facts exist already and a second reading of them makes superseded twins. And each fact still names the message it comes from. Mail stays one message per call: a mail is its own conversation and carries its quoted history. Five is about the right window for a model this size; twelve dilutes it. `common/analyze.py` takes the window as a list of messages with `"context": true` on the earlier ones and enforces both rules; the Telegram bot keeps the last four free-text messages per chat for this, and the backfill reads runs of six with the previous two as context.
+
+## 10. Replay-safe by construction
 
 Everything above makes a client safe to restart from zero: observations are content-addressed, bodies are resolved before they are made, occurrences land on activities, status is only ever written as `closed`, and the message log says what was handled. A client with those properties can be run again over the same month of mail and the ship ends up the same.
 

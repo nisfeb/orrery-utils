@@ -13,7 +13,9 @@ does.
     facts = analyze(model, messages, context)
 
 messages: a window of one conversation, oldest first, each
-    {"id": "<source id>", "at": "<ISO UTC>", "who": "<body id or name>", "text": "..."}
+    {"id": "<source id>", "at": "<ISO UTC>", "who": "<body id or name>", "text": "...",
+     "context": true}   context: an earlier message handled before, shown so the new ones read
+                        right; no fact is taken from it
 context: what the model may refer to
     {"bodies": [{"id", "name", "aliases"}], "attrs": {"person": [...], ...},
      "me": "person/me", "channel": "mail", "action_kinds": ["task"]}
@@ -62,6 +64,7 @@ A person is never an org. A payment request, a reminder or a note from a person 
 "at" is when the fact became true, ISO 8601 UTC, and defaults to the message's time; set it only when the message says otherwise. "until" is when it will stop being true, when the message says so.
 "conf" is 0 to 100: 90 for a plain statement, 60 for an inference, 40 for a guess.
 Each observation and action names the "message" id it comes from.
+Messages marked as earlier context are there so you understand the new ones: a reply, a pronoun, a mood that carries over. Write facts only from the new messages; anything you write from a context message is thrown away.
 Answer with one JSON object and nothing else:
 {"bodies": [{"id": "kind/slug", "name": "...", "aliases": ["..."]}],
  "observations": [{"subject": "kind/slug", "attr": "...", "value": ..., "at": "...", "until": "...", "conf": 90, "message": "..."}],
@@ -180,8 +183,17 @@ def prompt(messages, context):
     if not context.get('bodies'):
         lines.append('  (none known)')
     lines.append('')
-    lines.append('Messages, oldest first:')
-    for m in messages:
+    earlier = [m for m in messages if m.get('context')]
+    fresh = [m for m in messages if not m.get('context')]
+    if earlier:
+        lines.append('Earlier messages, context only, oldest first (write no facts from these):')
+        for m in earlier:
+            lines.append('--- context %s | %s | from %s' % (m['id'], m.get('at', ''), m.get('who', '')))
+            lines.append(str(m.get('text', ''))[:MAX_TEXT])
+        lines.append('New messages, oldest first:')
+    else:
+        lines.append('Messages, oldest first:')
+    for m in fresh:
         lines.append('--- message %s | %s | from %s' % (m['id'], m.get('at', ''), m.get('who', '')))
         lines.append(str(m.get('text', ''))[:MAX_TEXT])
     lines.append('---')
@@ -318,7 +330,8 @@ def validate(answer, messages, context):
     """The model's answer as facts orrery will take, with notes on what was dropped."""
     notes = []
     known = {b['id'] for b in context.get('bodies', [])}
-    ids = [m['id'] for m in messages]
+    ids = [m['id'] for m in messages if not m.get('context')]
+    context_ids = {m['id'] for m in messages if m.get('context')}
     at_of = {m['id']: m.get('at') for m in messages}
     last = ids[-1] if ids else ''
     bodies = []
@@ -367,6 +380,9 @@ def validate(answer, messages, context):
             #  the prompt offers these so a feeling has somewhere to go that is not
             #  status; they are thrown away here, quietly
             continue
+        if str(o.get('message', '')) in context_ids:
+            #  a fact re-derived from a message handled before: its facts exist already
+            continue
         kind = subject.split('/', 1)[0]
         listed = (context.get('attrs') or {}).get(kind) or []
         if listed and attr not in listed:
@@ -398,6 +414,8 @@ def validate(answer, messages, context):
             continue
         kind = str(a.get('kind', 'task')).strip().lower() or 'task'
         title = str(a.get('title', '')).strip()[:200]
+        if str(a.get('message', '')) in context_ids:
+            continue
         if kind not in kinds or not title:
             notes.append('dropped action: ' + (title or '(no title)'))
             continue
@@ -414,7 +432,7 @@ def validate(answer, messages, context):
 
 def analyze(model, messages, context):
     """Facts for one window of messages, or empty facts with a note on why."""
-    if not messages:
+    if not [m for m in messages if not m.get('context')]:
         return {'bodies': [], 'observations': [], 'actions': [], 'notes': []}
     try:
         raw = model.chat(SYSTEM, prompt(messages, context))
