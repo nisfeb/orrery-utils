@@ -163,7 +163,29 @@ class Participants(unittest.TestCase):
         self.assertEqual(plan['unsure'], ['Nutcracker'])
 
 
-class Retire(unittest.TestCase):
+class Times(unittest.TestCase):
+    def test_future_facts_become_schedule(self):
+        state = {'bodies': [{'id': 'situation/m', 'kind': 'situation', 'name': 'Meeting', 'aliases': [], 'attrs': {}, 'created': '2026-09-01T00:00:00Z'}]}
+
+        def reader(method, path):
+            return 200, {'observations': [
+                {'id': 'o1', 'attr': 'ended', 'value': '2026-12-05T20:00:00Z', 'at': '2026-09-10T00:00:00Z', 'conf': 80, 'status': 'live'},
+                {'id': 'o2', 'attr': 'started', 'value': '2026-09-01T10:00:00Z', 'at': '2026-09-01T10:00:00Z', 'conf': 90, 'status': 'live'},
+                {'id': 'o3', 'attr': 'status', 'value': 'under way', 'at': '2026-09-10T00:00:00Z', 'status': 'live'},
+                {'id': 'o4', 'attr': 'status', 'value': 'open', 'at': '2026-09-02T00:00:00Z', 'status': 'live'},
+                {'id': 'o5', 'attr': 'starts', 'value': '2026-12-05T18:00:00Z', 'at': '2026-12-05T18:00:00Z', 'conf': 80, 'status': 'live'}]}
+        retract, write = reconcile.plan_times(state, reader, '2026-09-18T12:00:00Z')
+        self.assertEqual([r[0] for r in retract], ['o1', 'o3', 'o5'])
+        self.assertEqual([(w['attr'], w['value'], w['at']) for w in write], [('ends', '2026-12-05T20:00:00Z', '2026-09-10T00:00:00Z'), ('starts', '2026-12-05T18:00:00Z', '2026-09-18T12:00:00Z')])
+
+    def test_retire_reads_the_schedule(self):
+        b = sit('situation/past', 'Past thing')
+        b['attrs']['ends'] = {'value': '2026-09-10T15:00:00Z'}
+        plans = reconcile.plan_retire({'bodies': [b]}, None, 30, '2026-09-18T12:00:00Z')
+        self.assertEqual([(p['id'], p['at']) for p in plans], [('situation/past', '2026-09-10T15:00:00Z')])
+
+
+
     NOW = '2026-09-18T12:00:00Z'
 
     def test_over_and_stale_close_and_the_rest_stay(self):

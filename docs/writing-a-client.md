@@ -19,9 +19,9 @@ Before making a body for an event or a person, ask the ship: `GET /apps/orrery/a
 
 The system prompt the readers use is `common/analyst-prompt.md`, plain text: a client in any language can send the same prompt, with the same context block (the bodies, the attribute names and notes, the messages) that `analyze.prompt` builds. `common/analyze.py` has the two functions that decide sameness the way reconcile does: `normalize_title` (prefixes like "Reminder:", dates, times and weekdays stripped) and `same_person` (every word of the shorter name in the longer, role words like "wife" ignored, a one-word name must be the first name). Use them, or `validate`, which applies both to a whole answer and folds twins into the bodies the ship has.
 
-## 3. Never write `status: "open"` for an event
+## 3. The schedule is not the fact, and status is not the clock
 
-Write `started` and `ended`. A situation counts as open until something says `closed`; the owner's `retire` pass closes it at its end. Write `status` only when the message says something changed: `closed` when it is over or cancelled, `open` never for a calendar event. A `status: open` row dated after a `closed` row reopens the situation, which is what a late reminder did to a trip that had been closed for months.
+A situation has two kinds of time. `starts` and `ends` are the schedule: a meeting on December 5 has `starts` and `ends` on December 5 the day the invitation arrives, and their `at` is when you learned the schedule, never the event's own time (a row dated in the future is hidden until then). `started` and `ended` are facts about what happened, written once it has, with `at` at the moment. Never write the past tense for something ahead. `status` is only ever `open`, `closed` or `cancelled`: never `upcoming`, `under way` or `over`, which the page and the owner's passes read off the times. Write `status` only when the message says something changed; `closed` when it is over or cancelled. A `status: open` row dated after a `closed` row reopens the situation, which is what a late reminder did to a trip that had been closed for months, so for a calendar event write no status at all.
 
 ## 4. Event time in `at`
 
