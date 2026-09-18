@@ -91,13 +91,13 @@ def load_config(path):
     serves every reader. A block both files hold as an object merges field by
     field, this file's fields winning: the generator names a stronger model
     and a reasoning budget in its own "model" block and still takes the
-    shared block's url and api_key. Anything else this file sets wins whole."""
+    shared block's url and api_key. Anything else this file sets wins whole.
+    An included file may include in turn, relative to itself."""
     with open(path) as f:
         cfg = json.load(f)
     shared = cfg.pop('include', None)
     if shared:
-        with open(os.path.join(os.path.dirname(os.path.abspath(path)), shared)) as f:
-            base = json.load(f)
+        base = load_config(os.path.join(os.path.dirname(os.path.abspath(path)), shared))
         for k, v in base.items():
             if k not in cfg:
                 cfg[k] = v

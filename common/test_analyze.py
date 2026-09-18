@@ -389,6 +389,12 @@ class Budget(unittest.TestCase):
             self.assertEqual(cfg['model'], {'url': 'https://router.example/v1', 'name': 'big', 'api_key': 'k',
                                             'reasoning': {'effort': 'high'}, 'max_tokens': 32000})
             self.assertEqual(cfg['state'], 'root.json')
+            #  a third file including the second reaches the first through it
+            with open(os.path.join(d, 'generator', 'check.json'), 'w') as f:
+                json.dump({'include': 'config.json', 'model': {'name': 'cheap', 'reasoning': {'enabled': False}}}, f)
+            cfg = analyze.load_config(os.path.join(d, 'generator', 'check.json'))
+            self.assertEqual(cfg['model'], {'url': 'https://router.example/v1', 'name': 'cheap', 'api_key': 'k',
+                                            'reasoning': {'enabled': False}, 'max_tokens': 32000})
 
     def test_a_reasoning_model_gets_no_temperature(self):
         self.assertIsNone(analyze.Model.from_config({'url': 'http://x', 'reasoning': {'effort': 'high'}}).temperature)
