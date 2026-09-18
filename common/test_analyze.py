@@ -200,7 +200,9 @@ class Answers(unittest.TestCase):
         plain = analyze.analyze(analyze.FakeModel(answer), msgs, analyze.context_from_state(state, 'chat'))
         self.assertEqual(plain['observations'], [])
         self.assertTrue(any('health' in n for n in plain['notes']))
-        writer = analyze.analyze(analyze.FakeModel(answer), msgs, analyze.context_from_state(state, 'chat', sensitive_write=True))
+        #  a key minted with sensitive: write sees health in its schema view
+        state['schema']['kinds']['person']['attrs'].append('health')
+        writer = analyze.analyze(analyze.FakeModel(answer), msgs, analyze.context_from_state(state, 'chat'))
         self.assertEqual([(o['attr'], o['value']) for o in writer['observations']], [('health', 'biopsy clear')])
 
     def test_notes_reach_the_prompt_and_the_sink_is_silent(self):

@@ -43,7 +43,6 @@ TEXT_LIMIT = 20000
 #  the analyst, set from the config at the start of a run; None means rules only
 MODEL = None
 CONTEXT = None
-CONFIG = {}
 
 
 # ==  the ship
@@ -458,7 +457,7 @@ def context_for(ship):
     global CONTEXT
     CONTEXT_USES[0] += 1
     if CONTEXT is None or CONTEXT_USES[0] % CONTEXT_EVERY == 0:
-        CONTEXT = analyze.context_from_state(ship.state(), SOURCE, sensitive_write=bool((CONFIG.get('orrery') or {}).get('sensitive_write')))
+        CONTEXT = analyze.context_from_state(ship.state(), SOURCE)
     return CONTEXT
 
 
@@ -617,8 +616,8 @@ def run(argv=None):
         if not token:
             raise SystemExit('no token: set ' + cfg['orrery'].get('token_env', 'ORRERY_TOKEN'))
         ship = Ship(cfg['orrery']['url'], token)
-    global MODEL, CONTEXT, CONFIG
-    MODEL, CONTEXT, CONFIG = None, None, cfg
+    global MODEL, CONTEXT
+    MODEL, CONTEXT = None, None
     for k in FILTERS:
         FILTERS[k] = list((cfg.get('filters') or {}).get(k) or [])
     mc = cfg.get('model')

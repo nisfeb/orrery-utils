@@ -44,6 +44,9 @@ KINDS = ('person', 'place', 'thing', 'org', 'situation', 'note', 'activity')
 #  schema, and then the rule below drops them like any other unlisted name.
 #  Named here only so the note says which of the two happened.
 SENSITIVE_ATTRS = ('health', 'income')
+#  a key minted with sensitive: write (orrery version 13) sees these names in its
+#  schema view and so may write them; a key without it does not, and the rule
+#  below drops them like any other unlisted name
 #  attributes the prompt offers as a sink for feelings; never sent
 SINK_ATTRS = ('mood', 'feeling', 'feelings', 'emotion')
 ATTR_RE = re.compile(r'^[a-z0-9-]{1,48}$')
@@ -130,7 +133,7 @@ def closed_before(body, cutoff):
     return isinstance(when, str) and bool(when) and when < cutoff
 
 
-def context_from_state(state, channel, action_kinds=('task',), sensitive_write=False):
+def context_from_state(state, channel, action_kinds=('task',)):
     """The context block from a state view: the bodies (id, name, aliases),
     the schema's attribute names per kind, and person/me."""
     bodies = []
@@ -150,7 +153,7 @@ def context_from_state(state, channel, action_kinds=('task',), sensitive_write=F
             if isinstance(spec.get('notes'), dict):
                 notes[kind] = {str(k): str(v) for k, v in spec['notes'].items() if isinstance(v, str)}
     return {'bodies': bodies[:MAX_BODIES_IN_CONTEXT], 'attrs': attrs, 'notes': notes, 'me': (state or {}).get('me', 'person/me'),
-            'channel': channel, 'action_kinds': list(action_kinds), 'sensitive_write': bool(sensitive_write)}
+            'channel': channel, 'action_kinds': list(action_kinds)}
 
 
 def prompt(messages, context):
@@ -374,10 +377,6 @@ def validate(answer, messages, context):
             continue
         kind = subject.split('/', 1)[0]
         listed = (context.get('attrs') or {}).get(kind) or []
-        if attr in SENSITIVE_ATTRS and context.get('sensitive_write'):
-            #  a key minted with sensitive: write may store health and income even
-            #  though its own schema view never lists them
-            listed = list(listed) + [attr]
         if listed and attr not in listed:
             #  a kind the schema speaks for keeps to its vocabulary, so a health or
             #  money fact cannot land on an invented name the owner's policy never sees
