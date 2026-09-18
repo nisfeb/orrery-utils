@@ -37,7 +37,7 @@ A client learns what exists by reading `GET /state`, once at the start and again
 
 ## 7. Sensitive facts have two names
 
-Medical facts go under `health`, money facts under `income`, and nowhere else. Both are in the starter schema for a person and both are in the starter policy's `sensitive` list, so keys never see them. A client that invents another name for a medical fact leaks it to every key.
+Medical facts go under `health`, money facts under `income`, and nowhere else. Both are in the starter schema for a person and both are in the starter policy's `sensitive` list, so keys never see them. A client that invents another name for a medical fact leaks it to every key. A client that learns such facts from other people (a message says "mom's biopsy came back clear") is minted with `"sensitive": "write"` in its scope (orrery version 13): it may store them, and every view keeps hiding them from it. The one bit such a key can learn is `existing` on its own re-submission of a claim whose exact time and source it already holds.
 
 ## 8. A status is a circumstance, not a feeling
 

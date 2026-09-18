@@ -192,6 +192,17 @@ class Answers(unittest.TestCase):
         ids = [b['id'] for b in analyze.context_from_state(state, 'mail')['bodies']]
         self.assertEqual(ids, ['situation/recent', 'situation/open', 'person/me'])
 
+    def test_sensitive_attrs_pass_only_for_a_writing_key(self):
+        state = {'me': 'person/me', 'bodies': [{'id': 'person/mom', 'name': 'Mom', 'aliases': []}],
+                 'schema': {'kinds': {'person': {'attrs': ['status', 'location']}}}}
+        answer = json.dumps({'observations': [{'subject': 'person/mom', 'attr': 'health', 'value': 'biopsy clear', 'conf': 85, 'message': 'm1'}]})
+        msgs = [{'id': 'm1', 'at': '2026-09-18T12:00:00Z', 'who': 'person/me', 'text': "mom's biopsy came back clear"}]
+        plain = analyze.analyze(analyze.FakeModel(answer), msgs, analyze.context_from_state(state, 'chat'))
+        self.assertEqual(plain['observations'], [])
+        self.assertTrue(any('health' in n for n in plain['notes']))
+        writer = analyze.analyze(analyze.FakeModel(answer), msgs, analyze.context_from_state(state, 'chat', sensitive_write=True))
+        self.assertEqual([(o['attr'], o['value']) for o in writer['observations']], [('health', 'biopsy clear')])
+
     def test_notes_reach_the_prompt_and_the_sink_is_silent(self):
         state = {'me': 'person/me', 'bodies': [{'id': 'person/sarah', 'name': 'Sarah', 'aliases': []}],
                  'schema': {'kinds': {'person': {'attrs': ['status', 'location'],
