@@ -24,14 +24,14 @@ The model answers one JSON object with `actions` and `notes`. Each action is che
 
 ```json
 {
-  "orrery": {"url": "https://your-ship.example", "token_env": "ORRERY_TOKEN"},
-  "model": {"provider": "anthropic", "name": "claude-sonnet-5", "key_env": "ANTHROPIC_API_KEY", "timeout": 180},
+  "include": "../config.json",
+  "orrery": {"url": "https://your-ship.example", "token": ""},
   "max_actions": 5,
   "timezone": "America/New_York"
 }
 ```
 
-`provider` is `anthropic` (the Messages API, key in the environment) or `openai` (any OpenAI-compatible chat endpoint, `url` and `name` as in the readers). `timezone` is a fallback; `person/me.timezone` on the ship wins.
+The same shape as the readers' configs: `include` pulls the shared `config.json` at the repo root, whose `model` block (a hosted OpenAI-compatible endpoint with its `api_key`, `provider` and `reasoning` fields, or LM Studio) then serves the generator too; a `model` block in this file wins whole. For Anthropic's Messages API put `{"api": "anthropic", "name": "claude-sonnet-5", "api_key": "..."}` (or `api_key_env`) in the `model` block. Secrets sit in the git-ignored config or in the environment variable the matching `_env` field names, as for the readers. `timezone` is a fallback; `person/me.timezone` on the ship wins.
 
 The key: read-only, every kind, the action kinds it may propose.
 
@@ -42,16 +42,14 @@ curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api
 }'
 ```
 
-Keys can live in a `.env` beside the config, git-ignored, one `NAME=value` per line (`ORRERY_TOKEN=...`, `ANTHROPIC_API_KEY=...`); `run.py` reads it, and nothing is typed on a command line.
-
 ## Running it
 
 ```bash
-cd generator && python3 -m unittest                       # the prompt and the validation, no network
-ORRERY_TOKEN=... python3 run.py --config config.json --no-model      # the prompt it would send
-ORRERY_TOKEN=... ANTHROPIC_API_KEY=... python3 run.py --config config.json --dry-run   # ask, print, file nothing
-ORRERY_TOKEN=... ANTHROPIC_API_KEY=... python3 run.py --config config.json             # one pass
-ORRERY_TOKEN=... ANTHROPIC_API_KEY=... python3 run.py --config config.json --loop 3600 # hourly
+cd generator && python3 -m unittest                  # the prompt and the validation, no network
+python3 run.py --config config.json --no-model       # the prompt it would send
+python3 run.py --config config.json --dry-run        # ask, print, file nothing
+python3 run.py --config config.json                  # one pass
+python3 run.py --config config.json --loop 3600      # hourly; or let the console run util.json's job
 ```
 
 ## The trial

@@ -110,14 +110,17 @@ class Anthropic:
 
 
 def model_from(cfg):
+    """The model block, the readers' way: "api": "anthropic" is the Messages
+    API with api_key (or ANTHROPIC_API_KEY); anything else is an
+    OpenAI-compatible endpoint built by analyze.Model.from_config, LM Studio
+    or a hosted router, with its key, provider and reasoning fields."""
     m = cfg.get('model') or {}
-    provider = m.get('provider', 'openai')
-    if provider == 'anthropic':
-        key = os.environ.get(m.get('key_env', 'ANTHROPIC_API_KEY'), '')
+    if m.get('api') == 'anthropic':
+        key = analyze.secret(m, 'api_key', 'ANTHROPIC_API_KEY')
         if not key:
-            raise SystemExit('set ' + m.get('key_env', 'ANTHROPIC_API_KEY'))
+            raise SystemExit('no key for the model: put it in model.api_key, or set the variable model.api_key_env names')
         return Anthropic(m.get('name', 'claude-sonnet-5'), key, int(m.get('timeout', 180)))
-    return analyze.Model(m.get('url', analyze.DEFAULT_URL), m.get('name'), int(m.get('timeout', 180)))
+    return analyze.Model.from_config(m)
 
 
 # ==  the prompt
@@ -263,20 +266,10 @@ def run(argv=None):
     ap.add_argument('--show-prompt', action='store_true', help='print the user prompt before asking')
     ap.add_argument('--no-model', action='store_true', help='build and print the prompt, ask nothing, file nothing')
     args = ap.parse_args(argv)
-    with open(args.config) as f:
-        cfg = json.load(f)
-    #  a .env beside the config (git-ignored) supplies the keys without them
-    #  ever appearing on a command line or in a shell history
-    env_path = os.path.join(os.path.dirname(os.path.abspath(args.config)), '.env')
-    if os.path.exists(env_path):
-        with open(env_path) as f:
-            for row in f:
-                k, _, v = row.strip().partition('=')
-                if k and v and k not in os.environ:
-                    os.environ[k] = v
-    token = os.environ.get(cfg['orrery'].get('token_env', 'ORRERY_TOKEN'), '')
+    cfg = analyze.load_config(args.config)
+    token = analyze.secret(cfg.get('orrery'), 'token', 'ORRERY_TOKEN')
     if not token:
-        raise SystemExit('set ' + cfg['orrery'].get('token_env', 'ORRERY_TOKEN'))
+        raise SystemExit('no orrery key: put it in orrery.token, or set the variable orrery.token_env names')
     ship = (NoShip if args.dry_run or args.no_model else Ship)(cfg['orrery']['url'], token)
     model = None if args.no_model else model_from(cfg)
     limit = int(cfg.get('max_actions', 5))

@@ -1,6 +1,6 @@
 {
-  "orrery": {"url": "https://your-ship.example", "token_env": "ORRERY_TOKEN"},
-  "model": {"provider": "anthropic", "name": "claude-sonnet-5", "key_env": "ANTHROPIC_API_KEY", "timeout": 180},
+  "include": "../config.json",
+  "orrery": {"url": "https://your-ship.example", "token": ""},
   "max_actions": 5,
   "timezone": "America/New_York"
 }
