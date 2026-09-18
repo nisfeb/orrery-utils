@@ -124,6 +124,55 @@ class Decisions(unittest.TestCase):
         self.assertEqual(titles, ['Merge person/d into person/e', 'Merge person/f into person/g'])
 
 
+class Retire(unittest.TestCase):
+    NOW = '2026-09-18T12:00:00Z'
+
+    def test_over_and_stale_close_and_the_rest_stay(self):
+        state = {'bodies': [
+            sit('situation/walk', 'Walk', '2026-09-10T14:00:00Z', '2026-09-10T15:00:00Z'),
+            sit('situation/preop', 'PreOp appointment', '2026-09-01T13:00:00Z', '2026-09-01T14:00:00Z'),
+            sit('situation/dinner', 'Dinner', '2026-09-19T23:00:00Z', '2026-09-20T01:00:00Z'),
+            sit('situation/old-open', 'An old thing', '2026-07-01T00:00:00Z'),
+            sit('situation/fresh-open', 'A fresh thing', '2026-09-16T22:00:00Z'),
+            {'id': 'situation/done', 'kind': 'situation', 'name': 'Done', 'aliases': [], 'created': '2026-08-01T00:00:00Z',
+             'attrs': {'status': {'value': 'closed'}, 'ended': {'value': '2026-08-02T00:00:00Z'}}},
+            {'id': 'activity/gym', 'kind': 'activity', 'name': 'Gym', 'aliases': [], 'created': '2026-08-01T00:00:00Z',
+             'attrs': {'last': {'value': '2026-09-01T00:00:00Z'}}},
+        ]}
+        for b in state['bodies']:
+            b['created'] = b['id'] == 'situation/old-open' and '2026-07-01T00:00:00Z' or b.get('created', '2026-09-01T00:00:00Z')
+        plans = {p['id']: p for p in reconcile.plan_retire(state, None, 30, self.NOW)}
+        self.assertEqual(sorted(plans), ['situation/old-open', 'situation/preop', 'situation/walk'])
+        self.assertEqual(plans['situation/walk']['at'], '2026-09-10T15:00:00Z')
+        self.assertEqual(plans['situation/old-open']['at'], '2026-07-01T00:00:00Z')
+        self.assertTrue(plans['situation/old-open']['why'].startswith('started 2026-07-01'))
+        self.assertEqual(reconcile.plan_prune(state, None, 30, self.NOW), ['situation/done'])
+        self.assertEqual(reconcile.plan_prune(state, None, 60, self.NOW), [])
+
+    def test_trips_close_a_week_after_they_start(self):
+        state = {'bodies': [sit('situation/2026-09-02-trip', 'Trip starting 2026-09-02', '2026-09-02T00:00:00Z'),
+                            sit('situation/2026-09-14-trip', 'Trip starting 2026-09-14', '2026-09-14T00:00:00Z')]}
+        plans = {p['id']: p for p in reconcile.plan_retire(state, None, 30, self.NOW)}
+        self.assertEqual(list(plans), ['situation/2026-09-02-trip'])
+        self.assertEqual(plans['situation/2026-09-02-trip']['at'], '2026-09-09T00:00:00Z')
+
+    def test_a_close_lands_after_a_later_open_row(self):
+        b = sit('situation/2026-01-01-trip', 'Trip starting 2026-01-01', '2026-01-01T00:00:00Z')
+        b['attrs']['status'] = {'value': 'open', 'at': '2026-09-10T12:00:00Z'}
+        plans = reconcile.plan_retire({'bodies': [b]}, None, 30, self.NOW)
+        self.assertEqual(plans[0]['at'], '2026-09-10T12:00:01Z')
+
+    def test_timeline_supplies_a_hidden_end(self):
+        state = {'bodies': [sit('situation/x', 'X')]}
+        state['bodies'][0]['created'] = '2026-09-01T00:00:00Z'
+
+        def reader(method, path):
+            return 200, {'observations': [{'attr': 'ended', 'value': '2026-09-15T10:00:00Z', 'status': 'live', 'seen': '2026-09-02T00:00:00Z'},
+                                          {'attr': 'started', 'value': '2026-09-15T09:00:00Z', 'status': 'live', 'seen': '2026-09-02T00:00:00Z'}]}
+        plans = reconcile.plan_retire(state, reader, 30, self.NOW)
+        self.assertEqual([(p['id'], p['at']) for p in plans], [('situation/x', '2026-09-15T10:00:00Z')])
+
+
 class People(unittest.TestCase):
     def test_proposals(self):
         props = {(p['from'], p['into']): p['why'] for p in reconcile.plan_people(STATE)}

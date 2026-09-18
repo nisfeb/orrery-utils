@@ -27,7 +27,7 @@ import json
 import re
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 DEFAULT_URL = 'http://localhost:1234/v1'
 MAX_TEXT = 8000
@@ -119,13 +119,33 @@ class FakeModel:
 
 # ==  the prompt
 
+CLOSED_DAYS = 30
+
+
+def closed_before(body, cutoff):
+    """A situation whose status is closed and whose end (or its close) is
+    before cutoff."""
+    attrs = body.get('attrs') or {}
+    status = attrs.get('status') if isinstance(attrs.get('status'), dict) else None
+    if not status or status.get('value') != 'closed':
+        return False
+    ended = attrs.get('ended') if isinstance(attrs.get('ended'), dict) else None
+    when = (ended or {}).get('value') or status.get('at') or ''
+    return isinstance(when, str) and bool(when) and when < cutoff
+
+
 def context_from_state(state, channel, action_kinds=('task',)):
     """The context block from a state view: the bodies (id, name, aliases),
     the schema's attribute names per kind, and person/me."""
     bodies = []
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=CLOSED_DAYS)).strftime('%Y-%m-%dT%H:%M:%SZ')
     for b in (state or {}).get('bodies', []):
-        if isinstance(b, dict) and b.get('id'):
-            bodies.append({'id': b['id'], 'name': b.get('name', ''), 'aliases': list(b.get('aliases') or [])})
+        if not isinstance(b, dict) or not b.get('id'):
+            continue
+        if b['id'].startswith('situation/') and closed_before(b, cutoff):
+            #  a situation long over is not something a new message refers to
+            continue
+        bodies.append({'id': b['id'], 'name': b.get('name', ''), 'aliases': list(b.get('aliases') or [])})
     attrs = {}
     for kind, spec in ((state or {}).get('schema') or {}).get('kinds', {}).items():
         if isinstance(spec, dict):
