@@ -58,7 +58,7 @@ curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api
 }'
 ```
 
-`"sensitive": "write"` lets the bot store health and money facts people mention without reading them back; `"sensitive_write": true` under `orrery` in the config tells the analyst to keep them.
+`"sensitive": "write"` lets the bot store health and money facts people mention without reading them back; such a key's schema view lists the two names, which is how the analyst knows to keep them.
 
 ## Setting up the bot
 

@@ -68,7 +68,7 @@ curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api
 }'
 ```
 
-Keep the `token` from the answer in the environment variable the config names. The ship keeps a salted hash and shows it once. `"sensitive": "write"` lets the reader store the health and money facts mail carries about other people without ever reading them back; set `"sensitive_write": true` under `orrery` in the config to match, or the analyst drops those rows as unlisted.
+Keep the `token` from the answer in the environment variable the config names. The ship keeps a salted hash and shows it once. `"sensitive": "write"` lets the reader store the health and money facts mail carries about other people without ever reading them back; such a key's schema view lists the two names, which is how the analyst knows to keep those rows.
 
 ## Configuration
 
