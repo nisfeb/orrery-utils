@@ -101,11 +101,14 @@ class Model:
     """An OpenAI-compatible chat endpoint."""
 
     def __init__(self, url=DEFAULT_URL, name=None, timeout=180, temperature=0.0, api_key=None, provider=None,
-                 reasoning=None):
+                 reasoning=None, max_tokens=2000):
         self.url = (url or DEFAULT_URL).rstrip('/')
         self.name = name
         self.timeout = timeout
         self.temperature = temperature
+        #  the answer's budget; a model that reasons spends it on the reasoning
+        #  first, so a long answer from such a model needs more than the default
+        self.max_tokens = max_tokens
         #  a hosted endpoint (OpenRouter and the like) wants a key; LM Studio does not
         self.api_key = api_key
         #  OpenRouter's routing rules for these requests alone, such as
@@ -118,14 +121,15 @@ class Model:
     @classmethod
     def from_config(cls, mc):
         """A model from a reader's "model" block: url, name, timeout, api_key or
-        api_key_env (the variable holding a hosted endpoint's key), provider and
-        reasoning."""
+        api_key_env (the variable holding a hosted endpoint's key), provider,
+        reasoning and max_tokens (default 2000)."""
         key = mc.get('api_key') or (os.environ.get(mc['api_key_env']) if mc.get('api_key_env') else None)
         if mc.get('api_key_env') and not key:
             #  never echo the field: a key pasted there by mistake would land on the terminal
             raise SystemExit('no key for the model: put it in model.api_key, or set the variable model.api_key_env names')
         return cls(mc.get('url', DEFAULT_URL), mc.get('name'), int(mc.get('timeout', 180)),
-                   api_key=key, provider=mc.get('provider'), reasoning=mc.get('reasoning'))
+                   api_key=key, provider=mc.get('provider'), reasoning=mc.get('reasoning'),
+                   max_tokens=int(mc.get('max_tokens', 2000)))
 
     def request(self, path, body=None):
         data = None if body is None else json.dumps(body).encode()
@@ -151,7 +155,7 @@ class Model:
         return self.name
 
     def chat(self, system, user):
-        body = {'model': self.model_name(), 'temperature': self.temperature, 'max_tokens': 2000,
+        body = {'model': self.model_name(), 'temperature': self.temperature, 'max_tokens': self.max_tokens,
                 'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]}
         if self.provider:
             body['provider'] = self.provider
@@ -166,7 +170,8 @@ class Model:
         if not content:
             if choice.get('finish_reason') == 'length':
                 #  every message would go the same way: the caller stops, not skips
-                raise RuntimeError('model ran out of tokens before answering; if it reasons, set "reasoning": {"enabled": false}')
+                raise RuntimeError('model ran out of tokens (max_tokens %d) before answering; raise "max_tokens" in the model block, '
+                                   'or if it reasons set "reasoning": {"enabled": false}' % self.max_tokens)
             raise RuntimeError('model answered without content (finish %s)' % choice.get('finish_reason'))
         return content
 
