@@ -377,6 +377,7 @@ class Budget(unittest.TestCase):
     model sends no temperature, and the budget is the block's."""
 
     def test_a_block_in_both_files_merges_field_by_field(self):
+        import os
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             os.mkdir(os.path.join(d, 'generator'))
