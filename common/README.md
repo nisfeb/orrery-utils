@@ -40,7 +40,7 @@ Config, in each reader's `config.json`:
 
 ## The prompt
 
-The system prompt in `analyze.py` teaches the model the three shapes and the rules: only what the messages say, existing bodies by id, new bodies only for named things, attribute names from the schema, `at` only when the message says when, honest confidence, one JSON object and nothing else. Change it there when the model's answers drift; the tests in `test_analyze.py` check the validation, not the model.
+The system prompt is `analyst-prompt.md` beside `analyze.py`, plain text, read at import; a client in any language uses the same file. It teaches the model the three shapes and the rules: only what the messages say, existing bodies by id, new bodies only for named things, attribute names from the schema, `at` only when the message says when, honest confidence, one JSON object and nothing else. Change it in the markdown when the model's answers drift; the tests in `test_analyze.py` check the validation and that the file is what the code sends, not the model.
 
 ## Small models and the meaning of an attribute
 

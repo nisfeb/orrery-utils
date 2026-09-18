@@ -153,6 +153,15 @@ class Association(unittest.TestCase):
         self.assertIn('situation/pottery-may-16 is activity/pottery', facts['notes'])
 
 
+class Prompt(unittest.TestCase):
+    def test_the_prompt_is_the_markdown_file(self):
+        with open(analyze.PROMPT_PATH, encoding='utf-8') as f:
+            text = f.read().strip()
+        self.assertEqual(analyze.SYSTEM, text)
+        self.assertIn('never a feeling, a quote or a wish', text)
+        self.assertIn('Answer with one JSON object and nothing else', text)
+
+
 class Answers(unittest.TestCase):
     def test_fenced_json_is_read(self):
         facts = analyze.analyze(analyze.FakeModel('Sure.\n```json\n' + json.dumps(ANSWER) + '\n```'), MESSAGES, CONTEXT)
