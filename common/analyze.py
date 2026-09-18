@@ -227,6 +227,7 @@ class Model:
         """One line on stderr per call: tokens in and out (reasoning counted
         apart when the router says) and the cost when it is reported, so the
         bill for a reader or the generator can be read off a log."""
+        self.last_usage = usage if isinstance(usage, dict) else None
         if not isinstance(usage, dict):
             return
         details = usage.get('completion_tokens_details') or {}
@@ -247,7 +248,7 @@ class FakeModel:
         self.answer = answer
         self.asked = []
 
-    def chat(self, system, user):
+    def chat(self, system, user, parts=None):
         self.asked.append(user)
         return self.answer
 
