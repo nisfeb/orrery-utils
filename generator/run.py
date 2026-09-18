@@ -114,12 +114,16 @@ def model_from(cfg):
     API with api_key (or ANTHROPIC_API_KEY); anything else is an
     OpenAI-compatible endpoint built by analyze.Model.from_config, LM Studio
     or a hosted router, with its key, provider and reasoning fields."""
-    m = cfg.get('model') or {}
+    #  an answer here is up to max_actions actions with payloads and a why, plus
+    #  notes, and a frontier model may reason before it: four times the
+    #  analyst's budget unless the block says otherwise
+    m = dict(cfg.get('model') or {})
+    m.setdefault('max_tokens', 8000)
     if m.get('api') == 'anthropic':
         key = analyze.secret(m, 'api_key', 'ANTHROPIC_API_KEY')
         if not key:
             raise SystemExit('no key for the model: put it in model.api_key, or set the variable model.api_key_env names')
-        return Anthropic(m.get('name', 'claude-sonnet-5'), key, int(m.get('timeout', 180)))
+        return Anthropic(m.get('name', 'claude-sonnet-5'), key, int(m.get('timeout', 180)), int(m['max_tokens']))
     return analyze.Model.from_config(m)
 
 

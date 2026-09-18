@@ -31,7 +31,7 @@ The model answers one JSON object with `actions` and `notes`. Each action is che
 }
 ```
 
-The same shape as the readers' configs: `include` pulls the shared `config.json` at the repo root, whose `model` block (a hosted OpenAI-compatible endpoint with its `api_key`, `provider` and `reasoning` fields, or LM Studio) then serves the generator too; a `model` block in this file wins whole. For Anthropic's Messages API put `{"api": "anthropic", "name": "claude-sonnet-5", "api_key": "..."}` (or `api_key_env`) in the `model` block. Secrets sit in the git-ignored config or in the environment variable the matching `_env` field names, as for the readers. `timezone` is a fallback; `person/me.timezone` on the ship wins.
+The same shape as the readers' configs: `include` pulls the shared `config.json` at the repo root, whose `model` block (a hosted OpenAI-compatible endpoint with its `api_key`, `provider` and `reasoning` fields, or LM Studio) then serves the generator too; a `model` block in this file wins whole. For Anthropic's Messages API put `{"api": "anthropic", "name": "claude-sonnet-5", "api_key": "..."}` (or `api_key_env`) in the `model` block. Secrets sit in the git-ignored config or in the environment variable the matching `_env` field names, as for the readers. `timezone` is a fallback; `person/me.timezone` on the ship wins. The answer's token budget is `max_tokens` in the `model` block, 8000 here unless set (the readers use 2000): a frontier model that reasons spends the budget on its reasoning first, and `model ran out of tokens` means it needs more, or `"reasoning": {"enabled": false}`.
 
 The key: read-only, every kind, the action kinds it may propose.
 

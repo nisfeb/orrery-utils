@@ -81,6 +81,12 @@ class Answers(unittest.TestCase):
         out, notes = run.validate(answer, STATE, [], 3)
         self.assertEqual(len(out), 3)
 
+    def test_model_budget(self):
+        self.assertEqual(run.model_from({'model': {'url': 'http://x', 'name': 'm'}}).max_tokens, 8000)
+        self.assertEqual(run.model_from({'model': {'url': 'http://x', 'name': 'm', 'max_tokens': 3000}}).max_tokens, 3000)
+        self.assertEqual(run.model_from({'model': {'api': 'anthropic', 'api_key': 'k'}}).max_tokens, 8000)
+        self.assertEqual(run.analyze.Model.from_config({'url': 'http://x'}).max_tokens, 2000)
+
     def test_same_title(self):
         self.assertTrue(run.same_title('Call the shop about the Subaru', 'call the shop about the subaru.'))
         self.assertTrue(run.same_title('Call John\'s shop about the Subaru', 'Call the shop about the Subaru'))
