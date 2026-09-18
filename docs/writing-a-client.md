@@ -38,7 +38,11 @@ A client learns what exists by reading `GET /state`, once at the start and again
 
 Medical facts go under `health`, money facts under `income`, and nowhere else. Both are in the starter schema for a person and both are in the starter policy's `sensitive` list, so keys never see them. A client that invents another name for a medical fact leaks it to every key.
 
-## 8. Replay-safe by construction
+## 8. A status is a circumstance, not a feeling
+
+`status` on a person is what they are doing or dealing with right now, in plain words: "on jury duty", "stranded, waiting for a tow", "travelling", "sick". Never a feeling, a quote or a wish. The schema's `notes` block says so for every attribute that needs saying; read it from the state view and put it in your prompt. Give feelings a sink the client throws away (`mood`), so a small model has somewhere to put "want to scream" that is not `status`. Small models follow a worked example better than a rule; carry two.
+
+## 9. Replay-safe by construction
 
 Everything above makes a client safe to restart from zero: observations are content-addressed, bodies are resolved before they are made, occurrences land on activities, status is only ever written as `closed`, and the message log says what was handled. A client with those properties can be run again over the same month of mail and the ship ends up the same.
 
