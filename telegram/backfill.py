@@ -4,16 +4,19 @@
 A bot cannot read your past conversations, so the past comes from the
 export Telegram Desktop makes (Settings, Advanced, Export Telegram data,
 JSON). This reads that file, keeps the messages from the people the config
-maps and the window of time you ask for, and hands them to the local model
-in runs of consecutive messages per chat, so a reply is read against what
-it answers. The facts go to orrery with the same key the bot uses.
+maps and the window of time you ask for, and hands them to the model in
+runs of consecutive messages per chat, each with the two before it as
+context, so a reply is read against what it answers. The facts go to orrery
+with the same key the bot uses.
 
     python3 backfill.py --config config.json --export ~/Downloads/Telegram\\ Desktop/DataExport/result.json --months 6 --dry-run
     python3 backfill.py --config config.json --export result.json --months 6
     python3 backfill.py --config config.json --export result.json --since 2026-01-01 --chat Sarah --chat family
+    python3 backfill.py --config config.json --export result.json --bot-chats --last 100 --dry-run
 
-Standard library only. The message text goes to the model on your machine
-and nowhere else; the ship gets the facts and telegram/<chat id>/<message id>.
+Standard library only. The message text goes to the model (your machine
+with a local one, its provider with a hosted one) and nowhere else; the ship
+gets the facts and telegram/<chat id>/<message id>.
 """
 import argparse
 import json
@@ -99,6 +102,13 @@ def messages_of(chat, cfg, since, done_after):
     return out
 
 
+def read_by_bot(chat_id, cfg):
+    """Whether an export's chat is one the live bot reads. The export writes a
+    group's id bare, where the Bot API writes -<id>, or -100<id> for a supergroup."""
+    ids = {str(c) for c in cfg.get('chats', [])}
+    return bool({chat_id, '-' + chat_id, '-100' + chat_id} & ids)
+
+
 def windows(msgs, size=None):
     """Runs of consecutive messages, each at most size (WINDOW_MESSAGES) long
     and about WINDOW_CHARS of text."""
@@ -134,7 +144,7 @@ def facts_for(window, chat_id, context, earlier=()):
             for m in earlier]
     msgs += [{'id': '%s/%s/%s' % (PLATFORM, chat_id, m['mid']), 'at': bot.iso(m['at']), 'who': m['who'], 'text': m['text']}
              for m in window]
-    got = analyze.analyze(MODEL, msgs, context)
+    got = bot.grounded(analyze.analyze(MODEL, msgs, context), msgs, context)
     facts.notes.extend(got['notes'])
     bodies, observations, actions = analyze.to_batch(got, SOURCE)
     for b in bodies:
@@ -153,10 +163,11 @@ def run(argv=None):
     ap.add_argument('--since', help='from this day (YYYY-MM-DD) on')
     ap.add_argument('--months', type=int, help='from this many months ago on')
     ap.add_argument('--chat', action='append', help='only chats with this name; repeatable')
+    ap.add_argument('--bot-chats', action='store_true', help="only the chats in the config's chats, the ones the live bot reads")
+    ap.add_argument('--last', type=int, help='only the last N messages of each chat')
     ap.add_argument('--dry-run', action='store_true', help='print the batches, send nothing, keep no place')
     args = ap.parse_args(argv)
-    with open(args.config) as f:
-        cfg = json.load(f)
+    cfg = analyze.load_config(args.config)
     with open(args.export) as f:
         export = json.load(f)
     since = None
@@ -166,7 +177,7 @@ def run(argv=None):
         since = (datetime.now(timezone.utc) - timedelta(days=30 * args.months)).replace(hour=0, minute=0, second=0, microsecond=0)
     mc = cfg.get('model') or {}
     if MODEL is None:
-        MODEL = analyze.Model(mc.get('url', analyze.DEFAULT_URL), mc.get('name'), int(mc.get('timeout', 180)))
+        MODEL = analyze.Model.from_config(mc)
         try:
             print('# model:', MODEL.model_name(), 'at', MODEL.url)
         except RuntimeError as e:
@@ -174,9 +185,9 @@ def run(argv=None):
     if args.dry_run:
         ship = bot.dry_ship(cfg)
     else:
-        token = os.environ.get(cfg['orrery'].get('token_env', 'ORRERY_TOKEN'), '')
+        token = analyze.secret(cfg['orrery'], 'token', 'ORRERY_TOKEN')
         if not token:
-            raise SystemExit('no token: set ' + cfg['orrery'].get('token_env', 'ORRERY_TOKEN'))
+            raise SystemExit('no orrery key: put it in orrery.token, or set the variable orrery.token_env names')
         ship = bot.Ship(cfg['orrery']['url'], token)
     state_path = cfg.get('state', 'state.json')
     state = bot.load_state(state_path)
@@ -187,7 +198,11 @@ def run(argv=None):
         if args.chat and name not in args.chat:
             continue
         chat_id = str(chat.get('id', ''))
+        if args.bot_chats and not read_by_bot(chat_id, cfg):
+            continue
         msgs = messages_of(chat, cfg, since, int(place.get(chat_id, 0)))
+        if args.last:
+            msgs = msgs[-args.last:]
         print('# chat %s (%s): %d message(s) to read' % (name, chat_id, len(msgs)))
         size = int(cfg.get('window', WINDOW_MESSAGES))
         for n, (earlier, window) in enumerate(with_context(windows(msgs, size))):
@@ -197,6 +212,9 @@ def run(argv=None):
             span = '%s..%s' % (window[0]['at'].strftime('%Y-%m-%d'), window[-1]['at'].strftime('%Y-%m-%d'))
             print('#  ', span, '%d msg' % len(window), '|', ' ; '.join(facts.notes) or ('nothing' if facts.empty() else
                   '%d bodies, %d observations, %d actions' % (len(facts.bodies), len(facts.observations), len(facts.actions))))
+            if analyze.model_down(facts.notes):
+                print('stopping in chat %s until the model answers; the next run retries this window' % name, file=sys.stderr)
+                return 1
             if not facts.empty() and not bot.send(ship, facts):
                 print('stopping in chat %s so the next run retries this window' % name, file=sys.stderr)
                 return 1

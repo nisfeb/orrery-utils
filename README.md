@@ -109,12 +109,12 @@ The `by` on what you write is the key's identity. Name keys after the integratio
 
 ### mail: an email reader
 
-Watches a mailbox over IMAP, reads what arrived since its cursor, decides with rules and a small local model what each message says about the world, and submits it. It never sends the message. Scope: kinds `person`, `org`, `thing`, `situation`; actions `task`; write.
+Watches a mailbox over IMAP, reads what arrived since its cursor, decides with rules and a model (local, or hosted through the shared config) what each message says about the world, and submits it. It never sends the message. Scope: kinds `person`, `org`, `thing`, `situation`; actions `task`; write.
 
 | the message | what the reader writes |
 |---|---|
-| a shipping notice with an arrival day | `thing/<order>.status = "shipped"`, `location = "in transit"`, `until` the arrival day; the body created with the order number as an alias |
-| a flight or hotel confirmation | `situation/<date>-<trip>` with `participants`, `location`, `started` and `ended` |
+| a shipping notice with an arrival day | `thing/<order>.status = "shipped"`, `location = "in transit"`, `until` the arrival day; the body named for the product and seller, the order number as an alias. A notice that names no product, no arrival day and no tracking number is skipped |
+| a flight or hotel confirmation | `situation/<date>-trip` with `status` open, `participants` `person/me` and `started` |
 | an invoice with a due date | an action: `task` "Pay <org> <amount>", `about` the org, `due` the date |
 | a person writing from a new address | `person/<x>.email = <address>`, `conf` 80 |
 | a reply that says where someone is or what they are doing | `person/<x>.location` or `.status`, `conf` from the model, `until` when the message implies one |
@@ -133,7 +133,7 @@ Both directions. It polls Home Assistant's REST API, turns the state changes of 
 | a door lock, a garage door, an alarm panel | `thing/<door>.locked`, `thing/garage.status`, `thing/alarm.status` |
 | an appliance starts a cycle with a known length | `thing/washer.status = "running"`, `until` the end of the cycle |
 | a car charger or an EV integration | `thing/<car>.charge`, `.location = {"ref": "place/home"}` while plugged in |
-| a leak, smoke or CO sensor trips | `situation/<date>-<sensor>` open, `location` the room, `participants` everyone home |
+| a leak, smoke or CO sensor trips | `situation/<date>-<sensor>` open, `location` the room, `participants` `person/me` |
 | a thermostat setpoint or mode changes | `place/home.climate = <mode>`; readings themselves stay in Home Assistant |
 
 Sensors chatter. The client writes on meaningful change only, never on every reading, and keeps its cursor on `last_changed`. An observation about a room temperature every minute is noise the analyst has to wade through; a situation named "the basement is wet" is a fact worth an action.
@@ -142,9 +142,9 @@ Actions: the analyst proposes `{"kind": "home", "title": "Turn the porch light o
 
 ### telegram: a bot for capture and delivery
 
-A Bot API client with long polling. People you map tell it facts in a short grammar, in a private chat or a group it sits in: `/at Route 9`, `/status stranded, waiting for a tow`, `/obs thing/subaru status broken down`, `/task Call the shop due 2026-09-18`. The sender's own body is the subject of `/at` and `/status`, so each person reports on themselves. Free text goes to a model hook that does nothing today. Scope: kinds `person`, `place`, `thing`, `situation`; actions `task`, `message`; write.
+A Bot API client with long polling. People you map tell it facts in a short grammar, in a private chat or a group it sits in: `/at Route 9`, `/status stranded, waiting for a tow`, `/obs thing/subaru status broken down`, `/task Call the shop due 2026-09-18`. The sender's own body is the subject of `/at` and `/status`, so each person reports on themselves. Free text goes to the model with the chat's last four messages as context, and what it answers is held to rules that trace each fact to its message. Scope: kinds `person`, `place`, `thing`, `situation`; actions `task`, `message`; write.
 
-The same bot delivers approved `message` actions whose payload says `via` `telegram` and names a person it knows, and reports done or failed. Keep `message` off `auto`, so no text leaves without a human reading it. A bot sees only what is sent to it; it never reads your own conversations with other people.
+The same bot delivers approved `message` actions whose payload says `via` `telegram` and names a person it knows, and reports done or failed. Keep `message` off `auto`, so no text leaves without a human reading it. A bot sees only what is sent to it, unless you connect it to your account with Telegram Business (Premium), which lets it read the private chats you pick as they arrive; groups need the bot as a member.
 
 ## More sources worth writing
 
@@ -153,7 +153,7 @@ Ranked by how much of the world they explain per hour of work. Each is one direc
 | source | what it yields | notes |
 |---|---|---|
 | a calendar (CalDAV, Google) | `situation` per meeting or trip with `participants` and `location`; `person/<x>.status = "in a meeting"` with `until`; a `calendar` executor that creates events the assistant proposes | the highest value after mail; the trip situation ties flights, hotels and people together |
-| chat and DMs (Signal, Telegram, Matrix, Slack, SMS) | whereabouts, plans and status from what people say, the way the stranded-car story in orrery's README works; participants become `person` bodies | a local model does the reading; nothing leaves the client but the pointer |
+| chat and DMs (Signal, Matrix, Slack, SMS) | whereabouts, plans and status from what people say, the way the stranded-car story in orrery's README works; participants become `person` bodies | the analyst does the reading, as it does for Telegram; the ship gets facts and pointers |
 | location (OwnTracks, a phone, a device tracker) | `person/me.location` with `conf` from accuracy; `place` bodies from geofences | consider marking `location` sensitive if keys other than this one exist |
 | contacts (CardDAV, a phone) | `person` bodies with `phone`, `email`, `birthday`, `relationship`; aliases from nicknames | the seed that makes every other reader's resolve calls succeed |
 | vehicles (OBD dongles, manufacturer APIs) | `thing/<car>` with `odometer`, `fuel` or `charge`, `location`, `last-service`; a `task` when service is due | pairs with home-assistant's charger facts |
@@ -168,9 +168,21 @@ Ranked by how much of the world they explain per hour of work. Each is one direc
 
 ## The analyst and the past
 
-`common/analyze.py` is the one piece the readers share: it hands a window of messages to a local model (LM Studio's OpenAI-compatible server at `http://localhost:1234/v1`, any model it lists) and validates the answer into orrery's shapes before anything is sent: ids well formed, subjects known or created in the same answer, values bounded, times parseable. The mail reader and the Telegram bot use it for the text their rules do not claim; a `model` block in each config turns it on. The message text goes to the model on your machine and nowhere else.
+`common/analyze.py` is the one piece the readers share: it hands a window of messages to a model (LM Studio's OpenAI-compatible server at `http://localhost:1234/v1` by default, or a hosted one, below) and validates the answer into orrery's shapes before anything is sent: ids well formed, subjects known or created in the same answer, values bounded, times parseable. The mail reader and the Telegram bot use it for the text their rules do not claim; a `model` block in each config, or in the shared one below, turns it on. With a local model the message text stays on your machine; with a hosted one it goes to that host.
 
-To build state from what already happened, both readers can run over the past. `mail/reader.py --months 6` reads a folder from that day on through the rules and the model, resumably, and `telegram/backfill.py --export result.json --months 6` does the same for a Telegram Desktop export. `at` is each message's own time, so the facts land where they belong and the timeline reads as it happened.
+To build state from what already happened, both readers can run over the past. `mail/reader.py --months 6` reads each folder from that day on through the rules and the model, up to `--limit` messages per folder per run, resumably (run it again to continue), and `telegram/backfill.py --export result.json --months 6` does the same for a Telegram Desktop export. `at` is each message's own time, so the facts land where they belong and the timeline reads as it happened.
+
+### One model block for every reader
+
+The readers that call the analyst (mail and both Telegram programs) take their `model` block from a shared `config.json` at the root of the repo when their own config says `"include": "../config.json"`. A key the reader's own file sets wins whole, so one reader can still run a different model or none. The root file is git-ignored like the others:
+
+```json
+{"model": {"url": "https://openrouter.ai/api/v1", "name": "deepseek/deepseek-v4-flash",
+           "api_key": "sk-or-...", "provider": {"zdr": true},
+           "reasoning": {"enabled": false}, "timeout": 60}}
+```
+
+Any secret may sit in its config file, which is git-ignored: `api_key` in the model block, `token` in the `orrery`, `telegram` and `home_assistant` blocks, `password` in `imap`. A value there wins; without one, the reader reads the environment variable the matching `*_env` field names, as before. `provider` is OpenRouter's per-request routing; `{"zdr": true}` sends these requests, and no others from the account, only to hosts that keep nothing. The message text leaves your machine for that host. Home Assistant never calls the analyst. The fixture configs include nothing, so a run with `--config fixtures/...` never reaches a hosted model; `mail/reader.py --eml` uses `config.json` when there is one, model and all, unless you pass `--no-model`.
 
 ## The action generator
 
@@ -182,6 +194,36 @@ Readers see one message at a time, so two of them, or one of them on two days, c
 
 Any client that writes to the ship, in this repo or outside it, follows `docs/writing-a-client.md`: resolve before creating, occurrences on activities, never `status: open` for an event, event time in `at`, a key rather than the cookie, no cache pushed back, and never the same message twice.
 
+## Running them: the console
+
+`python3 console.py` is a terminal console over systemd user units. It finds every directory with a `util.json`, and for each one shows whether it runs, since when and how often it restarted (or, for a pass on a timer, when the next one is and how the last one went), the last line of its log, and each of its secrets as set, not set, or only in your shell's environment, which a daemon never sees. It never shows a secret.
+
+| key | does |
+|---|---|
+| `i` | write or rewrite the integration's units in `~/.config/systemd/user/` |
+| `s` | start and enable it, or stop and disable it |
+| `r` | restart a loop, or run a pass now |
+| `l` / `L` | its log, or its last job's log, in `journalctl`'s pager |
+| `k` | set a secret (typed as stars; empty removes it) in the file the manifest names, kept readable by you alone |
+| `j` | run one of its jobs, asking for what the job needs |
+| `c` | make `config.json` from `config.example.json` |
+| `E` | turn on linger, so the daemons run when you are not logged in |
+
+A job runs as its own transient unit, `orrery-utils-<name>-job`, that stops the daemon while it runs and starts it again when it ends: a backfill and the daemon write the same `state.json`, and Telegram lets one poller at a time read the bot's updates. `python3 console.py status` prints the same state as text.
+
+`util.json`:
+
+```json
+{"about": "Mail reader: rules, then the model, for new mail in every folder",
+ "run": ["reader.py", "--config", "config.json"],
+ "every": "5min",
+ "secrets": {"imap.password": "config.json", "orrery.token": "config.json", "model.api_key": "../config.json"},
+ "jobs": {"re-ingest since": {"cmd": ["reader.py", "--config", "config.json", "--since", "{since}"],
+                              "ask": {"since": "from day, YYYY-MM-DD"}}}}
+```
+
+`run` is started in the integration's directory. Without `every` it is a loop, restarted 30 seconds after it exits; with `every` (a systemd time span: `30s`, `5min`, `1h`) it is a pass that long after the last one ended, and a first one 10 seconds after the timer starts. `secrets` maps a dotted field to the file it lives in, relative to the directory. A job's `{name}` is asked for when it runs.
+
 ## Writing a new integration
 
 1. Make a directory named after the source. Its README carries the mapping table (source field to body kind and attribute), the scope the key needs and why, the source kind and id form, what stays on the client, and how to run it.
@@ -189,5 +231,6 @@ Any client that writes to the ship, in this repo or outside it, follows `docs/wr
 3. Give it a dry-run flag that prints batches instead of sending them.
 4. Run it against a dev ship before a real one. Orrery's `docs/releasing.md` section 7 describes the fake ship and its cookie; `scripts/api-matrix.py` there shows every route being exercised.
 5. Keep the raw data on the client, keep a cursor, and make replay harmless.
+6. Give it a `util.json` (below) so the console can run it, set its secrets and offer its jobs. It needs a mode that runs for ever (a loop that exits on trouble, for systemd to restart) or a single pass the console puts on a timer.
 
 Any language. The API is JSON over HTTP; a few dozen lines of Python with `requests` is a complete client. A shared library comes when two integrations need the same code, not before.

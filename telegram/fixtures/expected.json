@@ -83,7 +83,7 @@
  "506": "sender 3003 is not in people: ignored",
  "507": "chat 4004 is not in chats: ignored",
  "508": "nothing",
- "509": "unknown: sarah (a dry run resolves nothing)",
+ "509": "unknown: sarah (a dry run without a key resolves nothing)",
  "510": {
   "bodies": [],
   "observations": [

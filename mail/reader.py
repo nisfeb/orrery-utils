@@ -3,16 +3,18 @@
 
 Reads what arrived in a mailbox since its cursor, decides with rules what
 each message says about the world, and sends the facts to orrery with a
-scoped key. The message itself never leaves this program: the ship gets a
-source pointer (kind "mail", id the Message-ID) and the facts.
+scoped key. The message never reaches the ship: the ship gets a source
+pointer (kind "mail", id the Message-ID) and the facts.
 
     python3 reader.py --config config.json --dry-run          # print, send nothing
     python3 reader.py --config config.json                    # read, send, advance the cursor
-    python3 reader.py --config config.json --months 6         # backfill: everything since six months ago
+    python3 reader.py --config config.json --months 6         # backfill: since six months ago, --limit per folder a run
     python3 reader.py --dry-run --eml fixtures/shipped.eml    # run the rules on a file
 
-With a "model" block in the config, messages the rules do not claim go to
-a local model (LM Studio's OpenAI-compatible server) through ../common/analyze.py.
+With a "model" block in the config (or in ../config.json through "include"),
+messages the rules do not claim go to the model through ../common/analyze.py:
+LM Studio on this machine by default, or a hosted endpoint, which then reads
+their text.
 
 Standard library only. See README.md for the mapping table and the scope.
 """
@@ -117,12 +119,12 @@ class NoShip:
 
 
 def dry_ship(cfg):
-    """The ship a dry run talks to. With a key in the environment its reads are
+    """The ship a dry run talks to. With a key (orrery.token, or its variable) its reads are
     the real ship's, so what a dry run prints is judged against the same bodies
     and schema a real run sees; without one it says so, because the difference
     is silent otherwise."""
     orrery = cfg.get('orrery') or {}
-    token = os.environ.get(orrery.get('token_env', 'ORRERY_TOKEN'), '')
+    token = analyze.secret(orrery, 'token', 'ORRERY_TOKEN')
     if orrery.get('url') and token:
         return NoShip(Ship(orrery['url'], token))
     print('# dry run without a key: the ship is not read, so its bodies and schema are unknown '
@@ -291,7 +293,7 @@ def skip_calendar(msg, facts, ship):
     return False
 
 
-SHIP_RE = re.compile(r'\b(has (?:been )?shipped|is on its way|on the way to you|out for delivery|'
+SHIP_RE = re.compile(r'\b(has (?:been )?shipped|is on (?:its|the) way|on the way to you|out for delivery|'
                      r'(?:has been|was) delivered)\b', re.I)
 ORDER_RE = re.compile(r'\border\s*(?:#|number|no\.?)?\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{3,})', re.I)
 
@@ -306,20 +308,84 @@ def order_number(text):
     return None
 
 
+#  where a shipping mail says what was ordered: a quoted title in the subject
+#  (Amazon's 'Shipped: "..."'), the words in brackets after the order number
+#  ("order #4471 (standing desk, oak)"), or an item line ("Oak desk × 1", Shopify)
+#  ponytail: three shapes; a store that lists items another way names nothing,
+#  and its mail is skipped unless it gives an arrival date or tracking number,
+#  or the order is already on the ship
+QUOTED_RE = re.compile(r'["\u201c]([^"\u201d]{3,})["\u201d]')
+BRACKETED_RE = re.compile(r'\border\s*(?:#|number|no\.?)?\s*[:#]?\s*[A-Z0-9][A-Z0-9-]{3,}\s*\(([^)]{3,120})\)', re.I)
+ITEM_RE = re.compile(r'^[ \t]*([^\n\u00d7]{3,120}?)[ \t]*\u00d7[ \t]*\d+[ \t]*$', re.M)
+
+
+def product_of(msg):
+    """What a shipping mail says was ordered, or None, at most 80 characters."""
+    m = QUOTED_RE.search(msg.subject) or BRACKETED_RE.search(msg.haystack) or ITEM_RE.search(msg.text)
+    if not m:
+        return None
+    p = re.sub(r'\s+', ' ', m.group(1)).strip(' .\u2026')
+    return p if len(p) <= 80 else p[:80].rsplit(' ', 1)[0] + '\u2026'
+
+
+TRACK_RE = re.compile(r'\btracking\s*(?:number|no\.?|#|id)?\s*(?:is\s*)?[:#]?\s*([A-Z0-9]{8,35})\b', re.I)
+UPS_RE = re.compile(r'\b1Z[0-9A-Z]{16}\b')
+
+
+def tracking_of(msg):
+    """A tracking number the mail gives (a UPS 1Z, or the token after the word
+    tracking, with a digit in it), or None. A tracking link is not taken: mail
+    is full of click-tracking links."""
+    m = UPS_RE.search(msg.haystack)
+    if m:
+        return m.group(0)
+    for m in TRACK_RE.finditer(msg.haystack):
+        if any(c.isdigit() for c in m.group(1)):
+            return m.group(1)
+    return None
+
+
+def on_ship(bid, ship, *names):
+    """Whether one of names ("order 4471", "tracking 1Z...") resolves to bid."""
+    return any(bid in [h.get('id') for h in ship.resolve(n) if isinstance(h, dict)] for n in names if n)
+
+
 def shipping(msg, facts, ship):
     m = SHIP_RE.search(msg.haystack)
     if not m:
         return False
     phrase = m.group(1).lower()
-    number = order_number(msg.haystack)
-    bid = 'thing/order-' + (slug(number) if number else hashlib.sha256(msg.id.encode()).hexdigest()[:8])
-    facts.body(bid, 'Order ' + number if number else 'An order', ['order ' + number] if number else ())
-    if 'delivered' in phrase:
+    delivered = 'delivered' in phrase
+    number, product, tracking = order_number(msg.haystack), product_of(msg), tracking_of(msg)
+    arrival = None if delivered else find_date(
+        window(msg.haystack, r'\b(arriv\w*|deliver\w* (?:by|on)|expected|estimated)\b'), msg.date)
+    key = number or tracking or product
+    if not key:
+        facts.notes.append('a shipping mail that names no order, product or tracking number: skipped')
+        return True
+    bid = 'thing/order-' + slug(key)[:48].strip('-')
+    names = ('order ' + number if number else None, 'tracking ' + tracking if tracking else None)
+    seller = msg.from_name.strip()
+    by = ' from ' + seller if seller else ''
+    aliases = [n for n in names if n]
+    #  an order is worth a body when it says what it is, or gives something to
+    #  follow (when it comes, or a tracking number); a bare number is nonsense
+    #  to anyone reading the ship, unless an earlier mail made the body already
+    if product:
+        facts.body(bid, product + by, aliases)
+    elif arrival or tracking:
+        if not on_ship(bid, ship, *names):
+            facts.body(bid, ('Order ' + number if number else 'A package') + by, aliases)
+    elif not on_ship(bid, ship, *names):
+        facts.notes.append('order %s names no product, no arrival date and no tracking number: skipped' % key)
+        return True
+    if tracking:
+        facts.observations.append(obs(msg, bid, 'tracking', tracking, conf=90))
+    if delivered:
         facts.observations.append(obs(msg, bid, 'status', 'delivered', conf=90))
         facts.observations.append(obs(msg, bid, 'location', None, conf=90))
         return True
     status = 'out for delivery' if 'out for delivery' in phrase else 'shipped'
-    arrival = find_date(window(msg.haystack, r'\b(arriv\w*|deliver\w* (?:by|on)|expected|estimated)\b'), msg.date)
     until = arrival + timedelta(days=1) if arrival else None
     facts.observations.append(obs(msg, bid, 'status', status, until=until, conf=90))
     facts.observations.append(obs(msg, bid, 'location', 'in transit', until=until, conf=90))
@@ -462,7 +528,7 @@ def context_for(ship):
 
 
 def classify_with_model(msg, facts, ship):
-    """A message the rules did not claim goes to the local model, which may
+    """A message the rules did not claim goes to the model, which may
     add bodies, observations and actions. The model sees the text; the ship
     gets the facts and the Message-ID. Money and health facts belong to the
     attributes income and health and nowhere else, so the owner's sensitive
@@ -520,7 +586,7 @@ def fetch_new(cfg, state, limit, since=None):
     that day on that the backfill has not handled yet, tracked apart from the
     live cursor. Messages are read with BODY.PEEK so nothing is marked seen."""
     im = cfg['imap']
-    password = os.environ.get(im.get('password_env', 'MAIL_PASSWORD'), '')
+    password = analyze.secret(im, 'password', 'MAIL_PASSWORD')
     conn = imaplib.IMAP4_SSL(im['host'], int(im.get('port', 993)))
     conn.login(im['user'], password)
     folders = im.get('folders') or [im.get('folder', 'INBOX')]
@@ -542,7 +608,16 @@ def _folder_batch(conn, state, limit, since, folder):
     key = folder
     if since is None:
         cur = state.get(key, {})
-        last = int(cur.get('last_uid', 0)) if cur.get('uidvalidity') == validity else 0
+        if cur.get('uidvalidity') != validity:
+            #  a folder the reader has no place in (new to the list, or renumbered
+            #  by the server) starts after its newest message: the past is a
+            #  backfill's to read (--since, --months), never a side effect of a run
+            ok, nxt = conn.response('UIDNEXT')
+            top = int(nxt[0]) - 1 if nxt and nxt[0] else 0
+            state[key] = {'uidvalidity': validity, 'last_uid': top}
+            print('%s: no place yet, starting after uid %d' % (folder, top), file=sys.stderr)
+            return [], key, validity
+        last = int(cur.get('last_uid', 0))
         ok, data = conn.uid('search', None, 'UID %d:*' % (last + 1))
     else:
         cur = state.get('backfill', {}).get(key, {})
@@ -595,7 +670,7 @@ def run(argv=None):
     ap.add_argument('--config', default='config.json')
     ap.add_argument('--dry-run', action='store_true', help='print the batches, send nothing, keep the cursor')
     ap.add_argument('--eml', nargs='*', help='run the rules on these files instead of the mailbox')
-    ap.add_argument('--limit', type=int, default=200, help='messages per run')
+    ap.add_argument('--limit', type=int, default=200, help='messages per folder per run')
     ap.add_argument('--since', help='backfill: every message from this day (YYYY-MM-DD) on')
     ap.add_argument('--months', type=int, help='backfill: every message from this many months ago on')
     ap.add_argument('--no-model', action='store_true', help='rules only, even with a model in the config')
@@ -604,17 +679,16 @@ def run(argv=None):
     cfg = {}
     if not args.eml or not args.dry_run or os.path.exists(args.config):
         try:
-            with open(args.config) as f:
-                cfg = json.load(f)
+            cfg = analyze.load_config(args.config)
         except OSError:
             if not (args.eml and args.dry_run):
                 raise
     if args.dry_run:
         ship = dry_ship(cfg)
     else:
-        token = os.environ.get(cfg['orrery'].get('token_env', 'ORRERY_TOKEN'), '')
+        token = analyze.secret(cfg['orrery'], 'token', 'ORRERY_TOKEN')
         if not token:
-            raise SystemExit('no token: set ' + cfg['orrery'].get('token_env', 'ORRERY_TOKEN'))
+            raise SystemExit('no orrery key: put it in orrery.token, or set the variable orrery.token_env names')
         ship = Ship(cfg['orrery']['url'], token)
     global MODEL, CONTEXT
     MODEL, CONTEXT = None, None
@@ -622,7 +696,7 @@ def run(argv=None):
         FILTERS[k] = list((cfg.get('filters') or {}).get(k) or [])
     mc = cfg.get('model')
     if mc and not args.no_model and mc.get('enabled', True):
-        MODEL = analyze.Model(mc.get('url', analyze.DEFAULT_URL), mc.get('name'), int(mc.get('timeout', 180)))
+        MODEL = analyze.Model.from_config(mc)
         try:
             print('# model:', MODEL.model_name(), 'at', MODEL.url)
         except RuntimeError as e:
@@ -653,6 +727,10 @@ def run(argv=None):
             facts = classify(msg, ship)
             print('#', '%d/%d' % (n, len(msgs)), uid, msg.date.strftime('%Y-%m-%d'), msg.id, '|',
                   ' ; '.join(facts.notes) or ('nothing' if facts.empty() else 'facts'))
+            if analyze.model_down(facts.notes):
+                print('stopping before uid %d until the model answers; the next run retries it' % uid, file=sys.stderr)
+                refused = True
+                break
             if not facts.empty() and not send(ship, facts):
                 print('stopping before uid %d so the next run retries it' % uid, file=sys.stderr)
                 refused = True
@@ -668,8 +746,11 @@ def run(argv=None):
                     if uid > live:
                         state[key] = {'uidvalidity': validity, 'last_uid': uid}
                 save_state(state_path, state)
+        if not args.dry_run:
+            #  a folder with no messages still keeps the place a first run gave it
+            save_state(state_path, state)
         if refused:
-            #  the ship refused: stop the whole run, not just this folder
+            #  the ship or the model refused: stop the whole run, not just this folder
             break
     return 0
 

@@ -91,6 +91,62 @@ class Filters(unittest.TestCase):
         reader.FILTERS['only_from'] = ['boss@work.example']
         self.assertIn('not on only_from', facts_for('personal').notes[0])
 
+    def test_an_order_is_named_for_what_it_is_or_skipped(self):
+        def mail(subject, body, sender='Amazon.com'):
+            raw = ('From: %s <ship@amazon.example>\nTo: me@example.com\nSubject: %s\n'
+                   'Date: Wed, 17 Sep 2026 14:02:00 +0000\nMessage-ID: <%s@amazon.example>\n'
+                   'Content-Type: text/plain; charset=utf-8\n\n%s\n') % (sender, subject, abs(hash(subject)), body)
+            return reader.parse(raw.encode())
+        amazon = reader.classify(mail('Shipped: \u201cAnker 6-Outlet Surge Protector\u201d and 1 more item',
+                                      'Your package is on its way. Order # 112-4471-9901'), reader.NoShip())
+        self.assertEqual(amazon.bodies, [{'id': 'thing/order-112-4471-9901', 'name': 'Anker 6-Outlet Surge Protector from Amazon.com',
+                                          'aliases': ['order 112-4471-9901']}])
+        shopify = reader.classify(mail('A shipment from order #1002 is on the way', 'Items in this shipment\nOak side table \u00d7 1\n',
+                                       sender='Oakworks'), reader.NoShip())
+        self.assertEqual(shopify.bodies[0]['name'], 'Oak side table from Oakworks')
+        bare = mail('Your order 5520 has shipped', 'Your order 5520 is on its way.', sender='Some Store')
+        facts = reader.classify(bare, reader.NoShip())
+        self.assertTrue(facts.empty())
+        self.assertIn('order 5520 names no product, no arrival date and no tracking number: skipped', facts.notes)
+        dated = reader.classify(mail('Your order 5521 has shipped', 'Estimated delivery: Saturday, September 19.',
+                                     sender='Some Store'), reader.NoShip())
+        self.assertEqual(dated.bodies[0]['name'], 'Order 5521 from Some Store')
+        self.assertEqual(dated.observations[0]['until'], '2026-09-20T00:00:00Z')
+        tracked = reader.classify(mail('Your order 5522 has shipped', 'UPS tracking number: 1Z999AA10123456784',
+                                       sender='Some Store'), reader.NoShip())
+        self.assertEqual(tracked.bodies[0]['aliases'], ['order 5522', 'tracking 1Z999AA10123456784'])
+        self.assertIn(('tracking', '1Z999AA10123456784'), [(o['attr'], o['value']) for o in tracked.observations])
+
+        class Knows(reader.NoShip):
+            def resolve(self, q):
+                return [{'id': 'thing/order-5520', 'kind': 'thing', 'name': 'Walnut desk from Some Store'}] if q == 'order 5520' else []
+        facts = reader.classify(bare, Knows())
+        self.assertEqual(facts.bodies, [])
+        self.assertEqual([(o['subject'], o['attr'], o['value']) for o in facts.observations],
+                         [('thing/order-5520', 'status', 'shipped'), ('thing/order-5520', 'location', 'in transit')])
+
+    def test_a_folder_with_no_place_starts_at_its_newest_message(self):
+        class Imap:
+            def __init__(self):
+                self.searched = []
+
+            def response(self, code):
+                return 'OK', [{'UIDVALIDITY': b'7', 'UIDNEXT': b'101'}[code]]
+
+            def uid(self, cmd, *args):
+                if cmd == 'search':
+                    self.searched.append(args[-1])
+                    return 'OK', [b'99 100']
+                return 'OK', [(b'1 (BODY[]', b'raw ' + args[0].encode())]
+        state = {}
+        self.assertEqual(reader._folder_batch(Imap(), state, 200, None, 'Archive/2016'), ([], 'Archive/2016', 7))
+        self.assertEqual(state['Archive/2016'], {'uidvalidity': 7, 'last_uid': 100})
+        state['Archive/2016']['last_uid'] = 98
+        imap = Imap()
+        msgs, _, _ = reader._folder_batch(imap, state, 200, None, 'Archive/2016')
+        self.assertEqual(imap.searched, ['UID 99:*'])
+        self.assertEqual([u for u, _ in msgs], [99, 100])
+
     def test_transactional_rules_come_first(self):
         reader.FILTERS['from'] = ['shop.example']
         reader.FILTERS['only_from'] = ['nobody']

@@ -46,7 +46,7 @@ curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api
 
 ## Configuration
 
-Copy `config.example.json` to `config.json` (git ignores it). Tokens live in the environment: a Home Assistant long-lived access token in `HASS_TOKEN`, the orrery key in `ORRERY_TOKEN`, or the names the config gives.
+Copy `config.example.json` to `config.json` (git ignores it). Tokens go in the file, `home_assistant.token` (a Home Assistant long-lived access token) and `orrery.token`, which is what a daemon run by the console reads; without them the client falls back to the environment variables their `token_env` name (`HASS_TOKEN` and `ORRERY_TOKEN` by default).
 
 ```json
 {
@@ -73,8 +73,8 @@ cd home-assistant
 python3 -m unittest                                                        # mapping and executor, no network
 python3 client.py --dry-run --config fixtures/mapping.json --states fixtures/states.json   # the fixture, printed
 python3 client.py --config config.json --dry-run                           # your entities, printed, nothing sent
-HASS_TOKEN=... ORRERY_TOKEN=... python3 client.py --config config.json     # one pass
-HASS_TOKEN=... ORRERY_TOKEN=... python3 client.py --config config.json --loop 60   # every minute
+python3 client.py --config config.json                                    # one pass
+python3 client.py --config config.json --loop 60                          # every minute; the console runs this as a systemd unit
 ```
 
 A dry run still reads Home Assistant (a read only call) unless `--states` names a file; it never calls a service and never contacts the ship. The cursor is `seen`, each mapped entity's last `last_changed`, plus the situations alarms opened and the actions executed, in `state.json`. A batch the ship refuses whole leaves the cursor where it was, so the next run sends it again; the same claim twice is one observation.

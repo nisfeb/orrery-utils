@@ -405,14 +405,16 @@ def run(argv=None):
     if args.dry_run:
         ship, hass = NoShip(), NoHass()
     else:
-        token = os.environ.get(cfg['orrery'].get('token_env', 'ORRERY_TOKEN'), '')
-        htok = os.environ.get(cfg['home_assistant'].get('token_env', 'HASS_TOKEN'), '')
+        #  a secret sits in its block (token), or in the variable token_env names
+        token = cfg['orrery'].get('token') or os.environ.get(cfg['orrery'].get('token_env', 'ORRERY_TOKEN'), '')
+        htok = cfg['home_assistant'].get('token') or os.environ.get(cfg['home_assistant'].get('token_env', 'HASS_TOKEN'), '')
         if not token or not htok:
-            raise SystemExit('set both tokens in the environment (see config.example.json)')
+            raise SystemExit('set both tokens: orrery.token and home_assistant.token, or the variables their token_env name')
         ship, hass = Ship(cfg['orrery']['url'], token), Hass(cfg['home_assistant']['url'], htok)
     reader = None
     if not args.states:
-        htok = os.environ.get(cfg.get('home_assistant', {}).get('token_env', 'HASS_TOKEN'), '')
+        ha = cfg.get('home_assistant', {})
+        htok = ha.get('token') or os.environ.get(ha.get('token_env', 'HASS_TOKEN'), '')
         reader = Hass(cfg['home_assistant']['url'], htok)
     state_path = cfg.get('state', 'state.json')
     while True:

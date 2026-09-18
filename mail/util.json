@@ -1,0 +1,41 @@
+{
+  "about": "Mail reader: rules, then the model, for new mail in every folder",
+  "run": [
+    "reader.py",
+    "--config",
+    "config.json"
+  ],
+  "every": "5min",
+  "secrets": {
+    "imap.password": "config.json",
+    "orrery.token": "config.json",
+    "model.api_key": "../config.json"
+  },
+  "jobs": {
+    "dry run since": {
+      "cmd": [
+        "reader.py",
+        "--config",
+        "config.json",
+        "--since",
+        "{since}",
+        "--dry-run"
+      ],
+      "ask": {
+        "since": "from day, YYYY-MM-DD"
+      }
+    },
+    "re-ingest since": {
+      "cmd": [
+        "reader.py",
+        "--config",
+        "config.json",
+        "--since",
+        "{since}"
+      ],
+      "ask": {
+        "since": "from day, YYYY-MM-DD"
+      }
+    }
+  }
+}

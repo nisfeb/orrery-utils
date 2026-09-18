@@ -8,14 +8,14 @@ Keep the ids of the messages you handled (a cursor, or a set, in a state file th
 
 ## 2. Resolve before you create, and take a hit as the thing itself
 
-Before making a body for an event or a person, ask the ship: `GET /apps/orrery/api/resolve?q=<title or name>`. Since orrery version 10 resolve matches names and aliases exactly, then by word containment ("Alice" against "Alice Baker"), then by prefix, and it matches `email` and `phone` values. Try the calendar UID as well: reconcile stores the UID of a series as an alias of the activity it built from it.
+Before making a body for an event or a person, ask the ship: `GET /apps/orrery/api/resolve?q=<title or name>`. Since orrery version 10 resolve matches names and aliases exactly, then by word containment ("Dana" against "Dana Quill"), then by prefix, and it matches `email` and `phone` values. Try the calendar UID as well: reconcile stores the UID of a series as an alias of the activity it built from it.
 
 - A hit of kind `activity`: the event is an occurrence of it. Write `last = <start of the occurrence>` on the activity, with `at` = that start, and `next = <start of the following one>` when you know it. Do not create a body.
 - A hit of kind `situation`: the same event seen again. Add facts to it. Do not create a twin.
 - A hit of kind `person`: the same person, whatever the name on the message. Use that id.
 - No hit, and the event repeats (the calendar says so, or the title has been seen before): create one `activity` with `schedule`, `cadence`, `location`, `participants` and `organizer`, and the occurrences as `last` rows. Give it the calendar UID and the title variants as aliases.
 - No hit, and it happens once: a `situation` with `started`, `ended`, `location` and `participants`.
-- Any part of an event can name a person: the title ("Adelaide- Ballet/Tap", "Rose and Leo- Opti Sail", "Milo Birthday"), the description ("bring Leo's helmet"), the attendee list, the organizer ("Coach Mike"), a note. Every person the event names is a participant, and its organizer is its `organizer`. Resolve each name; when nobody by that name exists, create the person, the first name (or the full name when the event gives it) as the body's name. Do not turn a production, a team or a place into a person: "Nutcracker rehearsal" and "Pirates practice" name nobody. The owner never seeds their household by hand; the data says who is in it.
+- Any part of an event can name a person: the title ("Mira- Ballet/Tap", "Theo and Juno- Opti Sail", "Felix Birthday"), the description ("bring Juno's helmet"), the attendee list, the organizer ("Coach Pat"), a note. Every person the event names is a participant, and its organizer is its `organizer`. Resolve each name; when nobody by that name exists, create the person, the first name (or the full name when the event gives it) as the body's name. Do not turn a production, a team or a place into a person: "Swan Lake rehearsal" and "Hornets practice" name nobody. The owner never seeds their household by hand; the data says who is in it.
 
 The system prompt the readers use is `common/analyst-prompt.md`, plain text: a client in any language can send the same prompt, with the same context block (the bodies, the attribute names and notes, the messages) that `analyze.prompt` builds. `common/analyze.py` has the two functions that decide sameness the way reconcile does: `normalize_title` (prefixes like "Reminder:", dates, times and weekdays stripped) and `same_person` (every word of the shorter name in the longer, role words like "wife" ignored, a one-word name must be the first name). Use them, or `validate`, which applies both to a whole answer and folds twins into the bodies the ship has.
 
@@ -33,7 +33,7 @@ Mint a key for the client (`POST /clients`) and send `Authorization: Bearer <tok
 
 ## 6. Do not push a local cache of bodies to the ship
 
-A client learns what exists by reading `GET /state`, once at the start and again every so often during a long run (the readers re-read every 50 messages). It never writes its own list of bodies back. A client that re-upserts what it remembers recreates everything the owner removed, and does it in bulk.
+A client learns what exists by reading `GET /state`, once at the start and again every so often during a long run (the mail reader re-reads every 50 messages, the Telegram backfill every ten windows, the live bot every ten minutes). It never writes its own list of bodies back. A client that re-upserts what it remembers recreates everything the owner removed, and does it in bulk.
 
 ## 7. Sensitive facts have two names
 

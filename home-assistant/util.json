@@ -1,0 +1,24 @@
+{
+  "about": "Home Assistant: presence, sensors and alarms in, approved home actions out",
+  "run": [
+    "client.py",
+    "--config",
+    "config.json",
+    "--loop",
+    "60"
+  ],
+  "secrets": {
+    "home_assistant.token": "config.json",
+    "orrery.token": "config.json"
+  },
+  "jobs": {
+    "dry run": {
+      "cmd": [
+        "client.py",
+        "--config",
+        "config.json",
+        "--dry-run"
+      ]
+    }
+  }
+}

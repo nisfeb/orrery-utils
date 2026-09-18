@@ -5,7 +5,8 @@ Both directions. People the config names tell the bot facts in a short
 command grammar (in a DM with the bot or in a group it sits in), and the
 bot sends them to orrery with a scoped key. It also delivers approved
 actions of kind "message" whose payload says via "telegram", to the people
-the config maps, and reports done or failed.
+the config maps, and reports done or failed. Connected to your account with
+Telegram Business, it also reads your private chats as they come in.
 
     python3 bot.py --config config.json --dry-run                     # print, send nothing, confirm nothing
     python3 bot.py --config config.json                               # one pass over pending updates
@@ -129,12 +130,12 @@ class NoShip:
 
 
 def dry_ship(cfg):
-    """The ship a dry run talks to. With a key in the environment its reads are
+    """The ship a dry run talks to. With a key (orrery.token, or its variable) its reads are
     the real ship's, so what a dry run prints is judged against the same bodies
     and schema a real run sees; without one it says so, because the difference
     is silent otherwise."""
     orrery = cfg.get('orrery') or {}
-    token = os.environ.get(orrery.get('token_env', 'ORRERY_TOKEN'), '')
+    token = analyze.secret(orrery, 'token', 'ORRERY_TOKEN')
     if orrery.get('url') and token:
         return NoShip(Ship(orrery['url'], token))
     print('# dry run without a key: the ship is not read, so its bodies and schema are unknown '
@@ -142,16 +143,29 @@ def dry_ship(cfg):
     return NoShip()
 
 
+#  a long poll's connection drops now and then (reset by a router or by
+#  Telegram, a timeout, a moment without network): nothing was received or
+#  confirmed, so the bot waits this long and asks again rather than exiting
+RETRY_PAUSE = 5
+
+
 class Telegram:
     """The Bot API with long polling."""
 
     def __init__(self, token, api='https://api.telegram.org'):
         self.base = api.rstrip('/') + '/bot' + token
+        self.owners = {}
 
     def updates(self, offset, timeout=30):
-        q = urllib.parse.urlencode({'offset': offset, 'timeout': timeout, 'allowed_updates': '["message"]'})
+        q = urllib.parse.urlencode({'offset': offset, 'timeout': timeout,
+                                    'allowed_updates': '["message", "business_message"]'})
         code, d = request(self.base + '/getUpdates?' + q, timeout=timeout + 15)
+        if code == 0 or code == 429 or code >= 500:
+            print('getUpdates: %s %s; asking again in %ds' % (code, str(d)[:120], RETRY_PAUSE), file=sys.stderr)
+            time.sleep(RETRY_PAUSE)
+            return []
         if code != 200 or not isinstance(d, dict) or not d.get('ok'):
+            #  a bad token or another poller on the same one: asking again will not help
             raise SystemExit('getUpdates failed: %s %s' % (code, str(d)[:200]))
         return d.get('result', [])
 
@@ -160,13 +174,30 @@ class Telegram:
         ok = code == 200 and isinstance(d, dict) and d.get('ok')
         return bool(ok), '' if ok else 'telegram answered %s: %s' % (code, str(d)[:300])
 
+    def business_owner(self, conn_id):
+        """The user id of the account a business connection belongs to, or ''
+        when Telegram does not say or the connection is off."""
+        if conn_id not in self.owners:
+            code, d = request(self.base + '/getBusinessConnection?' + urllib.parse.urlencode({'business_connection_id': conn_id}))
+            c = d.get('result') if code == 200 and isinstance(d, dict) and d.get('ok') else None
+            if not isinstance(c, dict) or not c.get('is_enabled'):
+                return ''
+            self.owners[conn_id] = str((c.get('user') or {}).get('id', ''))
+        return self.owners[conn_id]
+
 
 class NoTelegram:
-    """A dry run never sends."""
+    """A dry run never sends; it reads through telegram when it has one."""
+
+    def __init__(self, reads=None):
+        self.reads = reads
 
     def send(self, chat_id, text):
         print(json.dumps({'send': {'chat_id': chat_id, 'text': text}}))
         return True, ''
+
+    def business_owner(self, conn_id):
+        return self.reads.business_owner(conn_id) if self.reads else ''
 
 
 # ==  helpers
@@ -228,7 +259,7 @@ class Facts:
 #  /status <text>                   the sender's status ("-" clears it)
 #  /obs <subject> <attr> <value>    any fact; subject is a body id, a name the ship resolves, or "me"
 #  /task <title> [due YYYY-MM-DD]   an action
-#  anything else                    the model hook, nothing today
+#  anything else                    the model, when the config has one, held to grounded() below
 
 def subject_of(word, sender_body, ship, facts):
     if word.lower() == 'me':
@@ -238,7 +269,7 @@ def subject_of(word, sender_body, ship, facts):
     hits = [h for h in ship.resolve(word) if isinstance(h, dict) and str(h.get('name', '')).lower() == word.lower()]
     if len(hits) == 1:
         return hits[0]['id']
-    facts.refuse('unknown: ' + word + (' (a dry run resolves nothing)' if isinstance(ship, NoShip) else ''))
+    facts.refuse('unknown: ' + word + (' (a dry run without a key resolves nothing)' if isinstance(ship, NoShip) and not ship.reads else ''))
     return None
 
 
@@ -303,25 +334,137 @@ def handle(msg, cfg, ship, recent=None):
     return facts
 
 
+#  a live bot runs for days, so its view of the ship is read again this often
+#  and sees the bodies the other readers made since
+CONTEXT_TTL = 600
+CONTEXT_AT = 0.0
+
+
 def context_for(ship):
-    """The analyst's view of the ship, read once per run and grown with the
-    bodies this run creates."""
-    global CONTEXT
-    if CONTEXT is None:
-        CONTEXT = analyze.context_from_state(ship.state(), SOURCE)
+    """The analyst's view of the ship, grown with the bodies this run creates
+    and read again every CONTEXT_TTL seconds."""
+    global CONTEXT, CONTEXT_AT
+    if CONTEXT is None or time.time() - CONTEXT_AT > CONTEXT_TTL:
+        CONTEXT, CONTEXT_AT = analyze.context_from_state(ship.state(), SOURCE), time.time()
     return CONTEXT
 
 
+#  a small model writes what it remembers as readily as what it read, so a chat
+#  fact has to be traceable to its message; the same rules as Talon's extractor
+WORD_RE = re.compile(r"[a-z0-9']+")
+
+
+def words(text):
+    return ' %s ' % ' '.join(WORD_RE.findall(str(text).lower()))
+
+
+def named_in(text, bodies):
+    """The ids of the bodies a text names: a name or an alias as whole words,
+    or a person's first name; three letters at least, so "me" names nobody."""
+    said, hits = words(text), set()
+    for b in bodies:
+        names = [b.get('name', '')] + list(b.get('aliases') or [])
+        if b['id'].startswith('person/'):
+            names.append(str(b.get('name', '')).split(' ')[0])
+        if any(len(n.strip()) >= 3 and words(n) in said for n in names if words(n).strip()):
+            hits.add(b['id'])
+    return hits
+
+
+def shares_a_word(value, text):
+    """Whether a paraphrase could be of this text: a word of four letters or more in common."""
+    return bool({w for w in words(value).split() if len(w) >= 4} & set(words(text).split()))
+
+
+#  words that put a message in its author's mouth, and words that point at
+#  someone else: a message with the second and none of the first is about
+#  someone else, whoever sent it ("grandpa's flight got cancelled", from Sarah)
+FIRST_PERSON = {'i', "i'm", 'im', "i've", "i'll", "i'd", 'me', 'my', 'mine', 'myself',
+                'we', "we're", "we've", "we'll", 'us', 'our', 'ours'}
+SOMEONE_ELSE = {'he', "he's", 'him', 'his', 'she', "she's", 'her', 'hers', 'they', "they're", 'them', 'their',
+                'grandma', 'grandpa', 'granny', 'nana', 'mom', 'mum', 'mother', 'dad', 'father', 'wife', 'husband',
+                'son', 'daughter', 'brother', 'sister', 'aunt', 'uncle', 'cousin', 'baby', 'kids', 'boss', 'friend'}
+#  a status naming a diagnosis is a medical fact, which goes under health, out
+#  of every key's sight, and nowhere else (docs/writing-a-client.md, rule 7):
+#  moved there when the key's schema lists health, dropped when it does not
+#  ponytail: a word list, so "positive vibes" moves too; widen it as leaks show up
+MEDICAL = {'covid', 'flu', 'cancer', 'positive', 'diagnosed', 'diagnosis', 'infection', 'fever', 'surgery',
+           'chemo', 'pregnant', 'hospital', 'hospitalized', 'medication'}
+#  attributes whose value is a paraphrase by design, held to sharing a word
+#  with what was said rather than to being quoted from it
+PARAPHRASED = ('status', 'health')
+
+
+def grounded(got, window, ctx):
+    """The model's facts that its messages bear out: about the author, when the
+    message is theirs to speak for, or a body the message names; a value other
+    than a status or health found in the message's words; a status or health
+    not read from the earlier messages instead; a status naming a diagnosis
+    moved to health; nothing from a question. The rest is dropped with a note,
+    and so is a new body no fact kept is about."""
+    by_id = {m['id']: m for m in window}
+    earlier = [m['text'] for m in window if m.get('context')]
+    keep = []
+    for o in got['observations']:
+        m = by_id.get(o.get('message'), {})
+        text = str(m.get('text', ''))
+        #  a possessive points as surely as the word: "grandpa's flight" is grandpa's
+        said = {w for t in words(text).split() for w in (t, t[:-2] if t.endswith("'s") else t)}
+        named = named_in(text, list(ctx.get('bodies', [])) + got['bodies'])
+        others = {b for b in named if b.startswith('person/')} - {m.get('who')}
+        value = o.get('value')
+        medical = o['attr'] == 'status' and isinstance(value, str) and bool(set(words(value).split()) & MEDICAL)
+        if text.rstrip().endswith('?'):
+            why = 'a question states nothing'
+        elif o['subject'] != m.get('who') and o['subject'] not in named:
+            why = 'not the author and not named in the message'
+        elif o['subject'] == m.get('who') and o['subject'] not in named and (said & SOMEONE_ELSE or others) \
+                and not said & FIRST_PERSON:
+            why = 'the message is about someone else'
+        elif medical and 'health' not in (ctx.get('attrs') or {}).get(o['subject'].split('/', 1)[0], []):
+            why = 'a medical fact goes under health, which this key may not write'
+        elif o['attr'] not in PARAPHRASED and isinstance(value, dict) and value.get('ref') not in named:
+            why = 'the message does not name ' + str(value.get('ref'))
+        elif o['attr'] not in PARAPHRASED and isinstance(value, (str, int, float)) and not isinstance(value, bool) \
+                and str(value).lower() not in text.lower():
+            why = 'the value is not in the message'
+        elif o['attr'] in PARAPHRASED and isinstance(value, str) and not shares_a_word(value, text) \
+                and any(shares_a_word(value, e) for e in earlier):
+            why = 'read from the earlier messages'
+        else:
+            #  a chat fact is true from its message, not from midnight: a bare
+            #  date would lose the fold to anything said earlier that day
+            if str(o.get('at', '')).endswith('T00:00:00Z') and str(o['at'])[:10] == str(m.get('at', ''))[:10]:
+                o['at'] = m['at']
+            if medical:
+                o['attr'] = 'health'
+                got['notes'].append('moved %s.status to health: a medical fact' % o['subject'])
+            keep.append(o)
+            continue
+        got['notes'].append('dropped %s.%s: %s' % (o['subject'], o['attr'], why))
+    got['observations'] = keep
+    used = {o['subject'] for o in keep} | {o['value']['ref'] for o in keep if isinstance(o.get('value'), dict)}
+    used |= {x for a in got['actions'] for x in a.get('about', [])}
+    for b in got['bodies']:
+        if b['id'] not in used:
+            got['notes'].append('dropped body %s: no fact is about it' % b['id'])
+    got['bodies'] = [b for b in got['bodies'] if b['id'] in used]
+    return got
+
+
 def classify_with_model(msg, sender_body, src, at, facts, ship, recent=()):
-    """Free text from a known person goes to the local model with the
+    """Free text from a known person goes to the model with the
     sender's body, the source pointer, the message time and the chat's last
     few messages as context. The model sees the text; the ship gets the
     facts and the pointer, and only for the new message."""
     if MODEL is None:
         return None
+    if str(msg.get('text') or '').rstrip().endswith('?'):
+        #  a question states nothing; it still rides along as the next one's context
+        return None
     ctx = context_for(ship)
     window = [dict(m, context=True) for m in recent] + [{'id': src['id'], 'at': iso(at), 'who': sender_body, 'text': str(msg.get('text') or '')}]
-    got = analyze.analyze(MODEL, window, ctx)
+    got = grounded(analyze.analyze(MODEL, window, ctx), window, ctx)
     facts.notes.extend(got['notes'])
     bodies, observations, actions = analyze.to_batch(got, SOURCE)
     for b in bodies:
@@ -471,16 +614,35 @@ def remember(state, msg, sender_body):
 def one_pass(cfg, ship, tg, updates, state, state_path, dry):
     for u in updates:
         uid = u.get('update_id')
-        msg = u.get('message')
+        #  a business message is one of the owner's own private chats, read
+        #  through the Telegram Business connection: never replied to, since a
+        #  reply would land in the other person's chat with the bot
+        business = 'business_message' in u
+        msg = u.get('business_message') if business else u.get('message')
         if isinstance(msg, dict):
             chat_id = str((msg.get('chat') or {}).get('id', ''))
-            facts = handle(msg, cfg, ship, state.get('recent', {}).get(chat_id, []))
-            remember(state, msg, cfg.get('people', {}).get(str((msg.get('from') or {}).get('id', ''))))
-            print('#', uid, '|', ' ; '.join(facts.notes) or ('nothing' if facts.empty() else 'facts'))
+            sender_body = cfg.get('people', {}).get(str((msg.get('from') or {}).get('id', '')))
+            stranger = business and tg.business_owner(str(msg.get('business_connection_id', ''))) not in cfg.get('people', {})
+            if stranger:
+                facts = Facts()
+                facts.notes.append('business connection of an account not in people: ignored')
+            else:
+                facts = handle(msg, cfg, ship, state.get('recent', {}).get(chat_id, []))
+            print('#', uid, '|', 'business' if business else 'chat', chat_id, 'from', sender_body or 'someone', '|',
+                  ' ; '.join(facts.notes) or ('nothing' if facts.empty() else 'facts'))
+            #  live messages have no export behind them, so one the model never
+            #  read is kept for the next pass rather than confirmed and lost
+            if analyze.model_down(facts.notes):
+                print('stopping before update %s until the model answers' % uid, file=sys.stderr)
+                return False
             if not facts.empty() and not send(ship, facts):
                 print('stopping before update %s so the next pass retries it' % uid, file=sys.stderr)
                 return False
-            if facts.reply and cfg.get('reply_errors', True):
+            #  remembered once it is handled, so a retry does not show it to the model
+            #  as its own context, and only from chats the bot reads
+            if not stranger and chat_id in [str(c) for c in cfg.get('chats', [])]:
+                remember(state, msg, sender_body)
+            if facts.reply and cfg.get('reply_errors', True) and not business:
                 tg.send(msg.get('chat', {}).get('id'), facts.reply)
         if uid is not None:
             state['offset'] = int(uid) + 1
@@ -499,27 +661,26 @@ def run(argv=None):
     ap.add_argument('--updates', help='read updates from this file instead of telegram')
     ap.add_argument('--loop', action='store_true', help='long poll for ever')
     args = ap.parse_args(argv)
-    with open(args.config) as f:
-        cfg = json.load(f)
+    cfg = analyze.load_config(args.config)
     global MODEL, CONTEXT
     MODEL, CONTEXT = None, None
     mc = cfg.get('model')
     if mc and mc.get('enabled', True):
-        MODEL = analyze.Model(mc.get('url', analyze.DEFAULT_URL), mc.get('name'), int(mc.get('timeout', 180)))
+        MODEL = analyze.Model.from_config(mc)
         try:
             print('# model:', MODEL.model_name(), 'at', MODEL.url)
         except RuntimeError as e:
             raise SystemExit(str(e) + ' (start the server, or remove the model block)')
     reader = None
     if not args.updates:
-        btok = os.environ.get(cfg['telegram'].get('token_env', 'TELEGRAM_TOKEN'), '')
+        btok = analyze.secret(cfg['telegram'], 'token', 'TELEGRAM_TOKEN')
         if not btok:
-            raise SystemExit('set the bot token in the environment (see config.example.json)')
+            raise SystemExit('no bot token: put it in telegram.token, or set the variable telegram.token_env names')
         reader = Telegram(btok, cfg['telegram'].get('api', 'https://api.telegram.org'))
     if args.dry_run:
-        ship, tg = dry_ship(cfg), NoTelegram()
+        ship, tg = dry_ship(cfg), NoTelegram(reader)
     else:
-        token = os.environ.get(cfg['orrery'].get('token_env', 'ORRERY_TOKEN'), '')
+        token = analyze.secret(cfg['orrery'], 'token', 'ORRERY_TOKEN')
         if not token or reader is None:
             raise SystemExit('a real run needs both tokens and telegram (no --updates)')
         ship, tg = Ship(cfg['orrery']['url'], token), reader

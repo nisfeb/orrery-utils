@@ -131,10 +131,10 @@ class Association(unittest.TestCase):
         self.assertTrue(analyze.same_person('Dana Quill', 'Dana O Quill'))
 
     def test_a_one_word_name_prefers_the_exact_body(self):
-        context = {'bodies': [{'id': 'person/me', 'name': 'owner', 'aliases': []},
-                              {'id': 'person/x', 'name': 'owner wife', 'aliases': []}]}
-        self.assertEqual(analyze.existing_for({'id': 'person/owner-2', 'name': 'owner'}, context, []), 'person/me')
-        self.assertIsNone(analyze.existing_for({'id': 'person/j', 'name': 'owner egan'}, context, []))
+        context = {'bodies': [{'id': 'person/me', 'name': 'dana', 'aliases': []},
+                              {'id': 'person/x', 'name': 'dana wife', 'aliases': []}]}
+        self.assertEqual(analyze.existing_for({'id': 'person/dana-2', 'name': 'dana'}, context, []), 'person/me')
+        self.assertIsNone(analyze.existing_for({'id': 'person/j', 'name': 'dana quill'}, context, []))
 
     def test_twins_fold_into_existing_bodies(self):
         context = {'bodies': [{'id': 'person/dana', 'name': 'Dana', 'aliases': ['wife']},
@@ -190,7 +190,7 @@ class Answers(unittest.TestCase):
         m = analyze.FakeModel('{}')
         analyze.analyze(m, MESSAGES, CONTEXT)
         self.assertIn('person/sarah | Sarah | wife', m.asked[0])
-        self.assertIn('--- message telegram/1001/11 | 2026-09-16T23:40:00Z | from person/me', m.asked[0])
+        self.assertIn('--- message telegram/1001/11 | %s | from person/me' % analyze.local_time('2026-09-16T23:40:00Z'), m.asked[0])
 
     def test_context_leaves_out_long_closed_situations(self):
         state = {'me': 'person/me', 'bodies': [
@@ -262,6 +262,106 @@ class Answers(unittest.TestCase):
         self.assertEqual(c['attrs'], {'person': ['status']})
         self.assertEqual((c['channel'], c['action_kinds']), ('mail', ['task']))
 
+
+
+class Hosted(unittest.TestCase):
+    def test_a_hosted_model_sends_its_key_and_its_routing(self):
+        import os
+        os.environ['ANALYZE_TEST_KEY'] = 'secret'
+        m = analyze.Model.from_config({'url': 'https://openrouter.ai/api/v1', 'name': 'm', 'api_key_env': 'ANALYZE_TEST_KEY',
+                                       'provider': {'zdr': True}})
+        sent = []
+        m.request = lambda path, body=None: sent.append(body) or {'choices': [{'message': {'content': '{}'}}]}
+        m.chat('system', 'user')
+        self.assertEqual((m.api_key, sent[0]['provider']), ('secret', {'zdr': True}))
+        local = analyze.Model.from_config({})
+        local.name = 'qwen'
+        local.request = lambda path, body=None: sent.append(body) or {'choices': [{'message': {'content': '{}'}}]}
+        local.chat('system', 'user')
+        self.assertNotIn('provider', sent[1])
+        self.assertIsNone(local.api_key)
+
+
+class SharedConfig(unittest.TestCase):
+    def test_an_include_fills_in_what_the_reader_leaves_out(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            os.mkdir(os.path.join(d, 'mail'))
+            with open(os.path.join(d, 'config.json'), 'w') as f:
+                json.dump({'model': {'name': 'shared'}, 'state': 'shared.json'}, f)
+            with open(os.path.join(d, 'mail', 'config.json'), 'w') as f:
+                json.dump({'include': '../config.json', 'state': 'mail.json'}, f)
+            with open(os.path.join(d, 'mail', 'alone.json'), 'w') as f:
+                json.dump({'state': 'alone.json'}, f)
+            self.assertEqual(analyze.load_config(os.path.join(d, 'mail', 'config.json')),
+                             {'model': {'name': 'shared'}, 'state': 'mail.json'})
+            self.assertEqual(analyze.load_config(os.path.join(d, 'mail', 'alone.json')), {'state': 'alone.json'})
+
+
+class ModelDown(unittest.TestCase):
+    def test_a_model_that_never_read_the_message_is_told_apart(self):
+        def notes(e):
+            return analyze.analyze(type('M', (), {'chat': lambda self, s, u: (_ for _ in ()).throw(e)})(),
+                                   [{'id': 'm1', 'text': 'hi'}], {})['notes']
+        for e in (RuntimeError('model unreachable at x: refused'), RuntimeError('model answered 401: no auth'),
+                  RuntimeError('model answered 402: no credit'), RuntimeError('model answered 429: slow down'),
+                  RuntimeError('model answered 503: busy')):
+            self.assertTrue(analyze.model_down(notes(e)), e)
+        for e in (RuntimeError('model answered 400: too long'), ValueError('no JSON object in the answer')):
+            self.assertFalse(analyze.model_down(notes(e)), e)
+
+    def test_a_key_in_the_config_wins_and_a_missing_one_stops_the_run_unechoed(self):
+        import os
+        os.environ.pop('ANALYZE_TEST_MISSING', None)
+        self.assertEqual(analyze.Model.from_config({'api_key': 'sk-or-in-config', 'api_key_env': 'ANALYZE_TEST_MISSING'}).api_key,
+                         'sk-or-in-config')
+        with self.assertRaises(SystemExit) as e:
+            analyze.Model.from_config({'api_key_env': 'sk-or-pasted-in-the-wrong-field'})
+        self.assertNotIn('sk-or-pasted', str(e.exception))
+
+    def test_a_secret_sits_in_its_block_or_in_the_variable_it_names(self):
+        import os
+        os.environ['ANALYZE_TEST_TOKEN'] = 'from-env'
+        self.assertEqual(analyze.secret({'token': 'inline', 'token_env': 'ANALYZE_TEST_TOKEN'}, 'token', 'X'), 'inline')
+        self.assertEqual(analyze.secret({'token_env': 'ANALYZE_TEST_TOKEN'}, 'token', 'X'), 'from-env')
+        self.assertEqual(analyze.secret({}, 'token', 'ANALYZE_TEST_TOKEN'), 'from-env')
+        self.assertEqual(analyze.secret(None, 'token', 'ANALYZE_TEST_UNSET'), '')
+
+    def test_an_empty_answer_is_a_note_and_one_cut_short_stops_the_run(self):
+        def notes(finish, reasoning=None):
+            m = analyze.Model.from_config({'name': 'm', 'reasoning': reasoning})
+            sent = []
+            m.request = lambda path, body=None: sent.append(body) or {
+                'choices': [{'finish_reason': finish, 'message': {'content': None, 'reasoning': '...'}}]}
+            return analyze.analyze(m, [{'id': 'm1', 'text': 'hi'}], {})['notes'], sent[0]
+        cut, body = notes('length', {'enabled': False})
+        self.assertTrue(analyze.model_down(cut), cut)
+        self.assertEqual(body['reasoning'], {'enabled': False})
+        filtered, body = notes('content_filter')
+        self.assertFalse(analyze.model_down(filtered), filtered)
+        self.assertNotIn('reasoning', body)
+
+
+class LocalTime(unittest.TestCase):
+    def test_a_message_time_is_shown_on_the_owners_clock(self):
+        import os
+        import time
+        was = os.environ.get('TZ')
+        os.environ['TZ'] = 'America/New_York'
+        time.tzset()
+        try:
+            self.assertEqual(analyze.local_time('2026-08-19T14:03:47Z'), '2026-08-19T10:03:47-04:00')
+            self.assertEqual(analyze.local_time('2026-01-19T14:03:47Z'), '2026-01-19T09:03:47-05:00')
+            #  what the model writes back on that clock lands in UTC
+            self.assertEqual(analyze.iso_or_none('2026-08-19T11:30:00-04:00'), '2026-08-19T15:30:00Z')
+            self.assertEqual(analyze.local_time(''), '')
+        finally:
+            if was is None:
+                os.environ.pop('TZ', None)
+            else:
+                os.environ['TZ'] = was
+            time.tzset()
 
 if __name__ == '__main__':
     unittest.main()

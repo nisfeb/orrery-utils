@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """reconcile: associate what the readers left apart.
 
-Two passes over a ship's state.
+Three passes over a ship's state.
 
   activities   situations that are occurrences of one repeating event become
                one activity body each, with an observation per occurrence,
@@ -10,8 +10,8 @@ Two passes over a ship's state.
                name, two persons whose names or addresses match) become merge
                proposals: actions of kind "merge" for the owner to approve,
                applied with --apply through the ship's merge op.
-               The pass also reads people out of titles: "Adelaide- Ballet/Tap"
-               and "Rose and Leo- Opti Sail" name participants, "Milo
+               The pass also reads people out of titles: "Mira- Ballet/Tap"
+               and "Theo and Juno- Opti Sail" name participants, "Felix
                Birthday" names a person, and a title that starts with a
                known person's first name names them too. Missing people are
                created and every activity or situation whose title names
@@ -462,7 +462,7 @@ def plan_retire(state, reader=None, stale_days=30, now=None):
         elif started and not ended and TRIP_RE.match(b['id']) and trip_end(started) < now:
             #  a trip the mail never gave an end: over a week after it started
             plans.append({'id': b['id'], 'name': b.get('name', ''), 'at': after(trip_end(started), status_at), 'why': 'a trip started ' + started + ' with no end'})
-        elif started and started < stale and (not latest or latest < stale):
+        elif started and not ended and started < stale and (not latest or latest < stale):
             plans.append({'id': b['id'], 'name': b.get('name', ''), 'at': after(latest or started, status_at),
                           'why': 'started %s, nothing since %s' % (started, latest or started)})
     return plans
@@ -550,9 +550,9 @@ LEAD_RE = re.compile(r"^([A-Z][a-z]+)\b")
 
 def names_in(title):
     """(names the title is certain about, a leading first name to check
-    against the people the ship knows). "Adelaide- Ballet/Tap" is certain
-    of Adelaide; "Milo Birthday" of Milo; "Milo Fencing Lesson" only
-    says Milo if the ship already has a Milo."""
+    against the people the ship knows). "Mira- Ballet/Tap" is certain
+    of Mira; "Felix Birthday" of Felix; "Felix Fencing Lesson" only
+    says Felix if the ship already has a Felix."""
     t = str(title or '').strip()
     m = DASH_RE.match(t)
     if m:

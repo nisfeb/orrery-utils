@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""The analyst: a local model turns messages into orrery facts.
+"""The analyst: a model turns messages into orrery facts.
 
 Talks to an OpenAI-compatible chat endpoint (LM Studio at
-http://localhost:1234/v1 by default) and asks it for bodies, observations
+http://localhost:1234/v1 by default, or a hosted one such as OpenRouter,
+with Model.from_config reading a reader's "model" block) and asks it for bodies, observations
 and actions in orrery's own shapes. Every answer is validated here before
 it goes anywhere near a ship: ids well formed, subjects known, values
 bounded, times parseable. The model sees the message text; the ship never
@@ -64,19 +65,74 @@ def load_prompt(path=PROMPT_PATH):
 SYSTEM = load_prompt()
 
 
+#  a model that did not answer, or refused the request itself (no key, no
+#  credit, a rate limit, its own failure), said nothing about the message: the
+#  caller keeps the message for its next pass rather than confirming it unread.
+#  A 400 or an answer that is not JSON is about the message, and is not retried.
+DOWN_RE = re.compile(r'^model: model (unreachable|ran out of tokens|answered (40[1-4]|408|429|5\d\d)\b)')
+
+
+def model_down(notes):
+    """Whether the notes of an analyze() say the model never read the messages."""
+    return any(DOWN_RE.match(n) for n in notes)
+
+
+def secret(block, field, default_env):
+    """A secret from a config block: the value itself under field (token,
+    password, api_key), else the environment variable field_env names."""
+    block = block or {}
+    return block.get(field) or os.environ.get(block.get(field + '_env') or default_env, '')
+
+
+def load_config(path):
+    """A reader's config.json. An "include" names a shared file, relative to
+    this one, whose keys fill in what this file leaves out, so one model block
+    serves every reader; a key this file sets wins whole."""
+    with open(path) as f:
+        cfg = json.load(f)
+    shared = cfg.pop('include', None)
+    if shared:
+        with open(os.path.join(os.path.dirname(os.path.abspath(path)), shared)) as f:
+            cfg = dict(json.load(f), **cfg)
+    return cfg
+
+
 class Model:
     """An OpenAI-compatible chat endpoint."""
 
-    def __init__(self, url=DEFAULT_URL, name=None, timeout=180, temperature=0.0):
+    def __init__(self, url=DEFAULT_URL, name=None, timeout=180, temperature=0.0, api_key=None, provider=None,
+                 reasoning=None):
         self.url = (url or DEFAULT_URL).rstrip('/')
         self.name = name
         self.timeout = timeout
         self.temperature = temperature
+        #  a hosted endpoint (OpenRouter and the like) wants a key; LM Studio does not
+        self.api_key = api_key
+        #  OpenRouter's routing rules for these requests alone, such as
+        #  {"zdr": true}: only hosts that keep nothing of what they read
+        self.provider = provider
+        #  OpenRouter's reasoning switch: {"enabled": false} keeps a model that
+        #  thinks by default from spending the answer's tokens, and the bill, on it
+        self.reasoning = reasoning
+
+    @classmethod
+    def from_config(cls, mc):
+        """A model from a reader's "model" block: url, name, timeout, api_key or
+        api_key_env (the variable holding a hosted endpoint's key), provider and
+        reasoning."""
+        key = mc.get('api_key') or (os.environ.get(mc['api_key_env']) if mc.get('api_key_env') else None)
+        if mc.get('api_key_env') and not key:
+            #  never echo the field: a key pasted there by mistake would land on the terminal
+            raise SystemExit('no key for the model: put it in model.api_key, or set the variable model.api_key_env names')
+        return cls(mc.get('url', DEFAULT_URL), mc.get('name'), int(mc.get('timeout', 180)),
+                   api_key=key, provider=mc.get('provider'), reasoning=mc.get('reasoning'))
 
     def request(self, path, body=None):
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(self.url + path, data=data, method='POST' if data else 'GET')
         req.add_header('content-type', 'application/json')
+        if self.api_key:
+            req.add_header('Authorization', 'Bearer ' + self.api_key)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read())
@@ -95,13 +151,24 @@ class Model:
         return self.name
 
     def chat(self, system, user):
-        d = self.request('/chat/completions', {
-            'model': self.model_name(), 'temperature': self.temperature, 'max_tokens': 2000,
-            'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]})
+        body = {'model': self.model_name(), 'temperature': self.temperature, 'max_tokens': 2000,
+                'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]}
+        if self.provider:
+            body['provider'] = self.provider
+        if self.reasoning:
+            body['reasoning'] = self.reasoning
+        d = self.request('/chat/completions', body)
         try:
-            return d['choices'][0]['message']['content']
+            choice = d['choices'][0]
+            content = choice['message']['content']
         except (KeyError, IndexError, TypeError):
             raise RuntimeError('model answered without content: ' + json.dumps(d)[:300])
+        if not content:
+            if choice.get('finish_reason') == 'length':
+                #  every message would go the same way: the caller stops, not skips
+                raise RuntimeError('model ran out of tokens before answering; if it reasons, set "reasoning": {"enabled": false}')
+            raise RuntimeError('model answered without content (finish %s)' % choice.get('finish_reason'))
+        return content
 
 
 class FakeModel:
@@ -156,6 +223,16 @@ def context_from_state(state, channel, action_kinds=('task',)):
             'channel': channel, 'action_kinds': list(action_kinds)}
 
 
+def local_time(at):
+    """A message's ISO UTC time in this machine's time zone, the owner's, with
+    its offset: "until 11:30" in a message is 11:30 on the clock it was written
+    against, and the model can only say so if it sees that clock."""
+    try:
+        return datetime.fromisoformat(str(at).replace('Z', '+00:00')).astimezone().isoformat(timespec='seconds')
+    except ValueError:
+        return str(at or '')
+
+
 def prompt(messages, context):
     lines = ['Channel: ' + str(context.get('channel', '')), 'The owner is ' + str(context.get('me', 'person/me')) + '.']
     if context.get('attrs'):
@@ -180,13 +257,13 @@ def prompt(messages, context):
     if earlier:
         lines.append('Earlier messages, context only, oldest first (write no facts from these):')
         for m in earlier:
-            lines.append('--- context %s | %s | from %s' % (m['id'], m.get('at', ''), m.get('who', '')))
+            lines.append('--- context %s | %s | from %s' % (m['id'], local_time(m.get('at', '')), m.get('who', '')))
             lines.append(str(m.get('text', ''))[:MAX_TEXT])
         lines.append('New messages, oldest first:')
     else:
         lines.append('Messages, oldest first:')
     for m in fresh:
-        lines.append('--- message %s | %s | from %s' % (m['id'], m.get('at', ''), m.get('who', '')))
+        lines.append('--- message %s | %s | from %s' % (m['id'], local_time(m.get('at', '')), m.get('who', '')))
         lines.append(str(m.get('text', ''))[:MAX_TEXT])
     lines.append('---')
     lines.append('Answer with the JSON object.')
@@ -309,7 +386,7 @@ def existing_for(body, context, made):
         if len(hits) == 1:
             return hits[0]['id']
         #  several candidates: the one whose name is word for word the same wins,
-        #  so "owner" folds into the body named owner and not into "owner wife"
+        #  so "dana" folds into the body named dana and not into "dana wife"
         def flat(n):
             return re.sub(r'\s+', ' ', str(n or '').strip().lower())
         exact = [b['id'] for b in hits if flat(b.get('name')) == flat(body.get('name'))
