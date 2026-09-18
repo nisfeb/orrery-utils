@@ -56,7 +56,7 @@ python3 run.py --config config.json --loop 3600      # look hourly, ask only whe
 
 A pass asks the model only when something it would see has changed. The prompt is built with the clock on its last line, and a hash of everything above the clock is remembered after each real pass (in `state.json` next to the config, or where `state` in the config says); the next pass compares its own hash and stops there, free, when they match. A write on the ship that changes no line of the prompt (a sensitive attribute, a body outside the key's kinds) does not count, and neither does the clock; a situation crossing from upcoming to under way does, since the prompt says so. There is no ceiling: a quiet week is a week of no calls. `--force` asks anyway; a dry run never remembers.
 
-The same layout feeds the cache. Through OpenRouter or the Messages API the system prompt and the stable part of the user prompt carry cache marks, so a call within five minutes of another reads the repeated prefix at a tenth of the input price, and the usage line says how much came from the cache. Passes an hour apart do not benefit; a burst of them does.
+The same layout feeds the cache. The prompt's pieces run from the least changing to the most: things, places and orgs; people and activities; situations; open actions and decisions; the clock. Through OpenRouter or the Messages API the system prompt and the first three pieces carry cache marks, so a call within five minutes of another reads every piece up to the first changed one at a tenth of the input price (a filing changes only the fourth piece and leaves the first three cached), and the usage line says how much came from the cache. Passes an hour apart do not benefit; a burst of them does.
 
 ## The trial
 
