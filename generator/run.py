@@ -17,6 +17,7 @@ key in the environment). Standard library only. The prompt is
 ../common/generator-prompt.md.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -89,9 +90,20 @@ class Anthropic:
     def __init__(self, name, key, timeout=180, max_tokens=2000):
         self.name, self.key, self.timeout, self.max_tokens = name, key, timeout, max_tokens
 
-    def chat(self, system, user):
-        body = {'model': self.name, 'max_tokens': self.max_tokens, 'system': system,
-                'messages': [{'role': 'user', 'content': user}]}
+    def body(self, system, user, parts=None):
+        """The Messages API request, with the system prompt and the last stable
+        piece of the user prompt marked for the cache when parts are given."""
+        mark = {'cache_control': {'type': 'ephemeral'}}
+        if parts:
+            content = [dict({'type': 'text', 'text': t}, **(mark if i == len(parts) - 2 else {})) for i, t in enumerate(parts)]
+            system = [dict({'type': 'text', 'text': system}, **mark)]
+        else:
+            content = user
+        return {'model': self.name, 'max_tokens': self.max_tokens, 'system': system,
+                'messages': [{'role': 'user', 'content': content}]}
+
+    def chat(self, system, user, parts=None):
+        body = self.body(system, user, parts)
         req = urllib.request.Request('https://api.anthropic.com/v1/messages', data=json.dumps(body).encode(), method='POST')
         req.add_header('x-api-key', self.key)
         req.add_header('anthropic-version', '2023-06-01')
@@ -176,8 +188,15 @@ def line(b, now):
     return head + (' | ' + '; '.join(bits) if bits else '')
 
 
-def build(state, decided, now, tz, limit):
-    lines = ['Now: %s. The owner is %s, timezone %s. Propose at most %d actions.' % (now, state.get('me', 'person/me'), tz or 'unknown', limit)]
+def build_parts(state, decided, now, tz, limit):
+    """The user prompt in five pieces, stable ones first: the header with
+    the payload shapes and the situations; the activities and people; the
+    things, places, orgs and notes; the open actions and recent decisions;
+    and last the time now. The clock sits at the end so that the rest is
+    the same text from one pass to the next while nothing changed: the
+    pass is skipped on that, and a model call minutes after another reads
+    the repeated prefix from the cache."""
+    lines = ['The owner is %s. Propose at most %d actions.' % (state.get('me', 'person/me'), limit)]
     schema = state.get('schema') or {}
     lines.append('Action kinds: ' + ', '.join(schema.get('actions') or ['task', 'note']))
     payloads = schema.get('payloads') or {}
@@ -187,20 +206,56 @@ def build(state, decided, now, tz, limit):
             lines.append('  %s: %s' % (k, json.dumps(shape)))
     bodies = [b for b in state.get('bodies', []) if isinstance(b, dict)][:MAX_BODIES]
     hidden = {b['id'] for b in bodies if b['id'].startswith('situation/') and phase(b, now) in ('closed', 'cancelled', 'over')}
-    for kind in ('situation', 'activity', 'person', 'thing', 'place', 'org', 'note'):
-        rows = [b for b in bodies if b.get('kind') == kind and b['id'] not in hidden]
-        if rows:
-            lines.append(('activities' if kind == 'activity' else kind + 's') + ':')
-            for b in rows:
-                lines.append('  ' + line(b, now))
+    parts, groups = [], (('situation',), ('activity', 'person'), ('thing', 'place', 'org', 'note'))
+    for kinds in groups:
+        for kind in kinds:
+            rows = [b for b in bodies if b.get('kind') == kind and b['id'] not in hidden]
+            if rows:
+                lines.append(('activities' if kind == 'activity' else kind + 's') + ':')
+                for b in rows:
+                    lines.append('  ' + line(b, now))
+        parts.append('\n'.join(lines))
+        lines = []
     lines.append('Open actions (proposed or approved, do not duplicate):')
     for a in state.get('actions') or []:
         lines.append('  %s | %s | about %s' % (a.get('kind'), a.get('title'), ', '.join(a.get('about') or [])))
     lines.append('Recent decisions (do not propose these again):')
     for a in decided[-RECENT:]:
         lines.append('  %s | %s | %s' % (a.get('status'), a.get('kind'), a.get('title')))
-    lines.append('Answer with the JSON object.')
-    return '\n'.join(lines)
+    parts.append('\n'.join(lines))
+    parts.append('Now: %s, timezone %s. Answer with the JSON object.' % (now, tz or 'unknown'))
+    return parts
+
+
+def build(state, decided, now, tz, limit):
+    return '\n'.join(build_parts(state, decided, now, tz, limit))
+
+
+# ==  the skip: no pass while the model would see what it saw last time
+
+def digest(parts):
+    """A hash of everything but the clock."""
+    return hashlib.sha256('\n'.join(parts[:-1]).encode('utf-8')).hexdigest()
+
+
+def should_run(saved, seen, force=False):
+    return bool(force) or (saved or {}).get('prompt') != seen
+
+
+def recall(path):
+    try:
+        with open(path, encoding='utf-8') as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def remember(path, rev, seen):
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump({'rev': rev, 'prompt': seen, 'at': iso_now()}, f)
+    os.replace(tmp, path)
 
 
 # ==  the answer
@@ -266,7 +321,8 @@ def run(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--config', default='config.json')
     ap.add_argument('--dry-run', action='store_true', help='ask the model, print, file nothing')
-    ap.add_argument('--loop', type=int, default=0, help='repeat every N seconds')
+    ap.add_argument('--loop', type=int, default=0, help='look every N seconds, ask the model only when something changed')
+    ap.add_argument('--force', action='store_true', help='ask the model even when nothing changed since the last pass')
     ap.add_argument('--show-prompt', action='store_true', help='print the user prompt before asking')
     ap.add_argument('--no-model', action='store_true', help='build and print the prompt, ask nothing, file nothing')
     ap.add_argument('--answer', help='take the model answer from this file instead of asking a model (a replay, or an analyst that is not an API)')
@@ -278,21 +334,35 @@ def run(argv=None):
     ship = (NoShip if args.dry_run or args.no_model else Ship)(cfg['orrery']['url'], token)
     model = None if (args.no_model or args.answer) else model_from(cfg)
     limit = int(cfg.get('max_actions', 5))
+    #  what the last real pass saw, next to the config unless "state" says where
+    state_path = cfg.get('state') or os.path.join(os.path.dirname(os.path.abspath(args.config)), 'state.json')
     with open(PROMPT_PATH, encoding='utf-8') as f:
         system = f.read().strip()
-    while True:
+
+    def snapshot():
         state = ship.state()
         decided = [a for a in ship.actions('all') if a.get('status') in ('done', 'dismissed', 'failed')]
         decided.sort(key=lambda a: str(a.get('proposed', '')))
         me = next((b for b in state.get('bodies', []) if b.get('id') == state.get('me', 'person/me')), {})
         tz = val(me.get('attrs') or {}, 'timezone') or cfg.get('timezone')
-        user = build(state, decided, iso_now(), tz, limit)
+        return state, decided, build_parts(state, decided, iso_now(), tz, limit)
+
+    while True:
+        state, decided, parts = snapshot()
+        user, seen = '\n'.join(parts), digest(parts)
         if args.show_prompt or args.no_model:
             print(user)
         if args.no_model:
             return 0
+        saved = recall(state_path)
+        if not should_run(saved, seen, args.force):
+            print('# nothing the model would see has changed since %s (rev %s): no pass' % (saved.get('at'), saved.get('rev')))
+            if not args.loop:
+                return 0
+            time.sleep(args.loop)
+            continue
         try:
-            raw = open(args.answer, encoding='utf-8').read() if args.answer else model.chat(system, user)
+            raw = open(args.answer, encoding='utf-8').read() if args.answer else model.chat(system, user, parts)
             answer = analyze.parse_json(raw)
         except (RuntimeError, ValueError) as e:
             print('model:', str(e)[:300], file=sys.stderr)
@@ -304,6 +374,14 @@ def run(argv=None):
             code, d = ship.act(p)
             print('filed' if code == 200 else 'refused', p['kind'], '|', p['title'], '|', (d or {}).get('status', '') if code == 200 else str(d)[:120])
         print('# %d proposal(s) filed' % len(proposals))
+        if not args.dry_run:
+            #  a filing changes the open actions, so what the model saw is
+            #  re-read after the writer applied it and remembered as seen
+            if proposals:
+                time.sleep(1)
+                state, decided, parts = snapshot()
+                seen = digest(parts)
+            remember(state_path, state.get('rev'), seen)
         if not args.loop:
             return 0
         time.sleep(args.loop)

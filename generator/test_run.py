@@ -5,6 +5,8 @@ a model's answer.
     cd generator && python3 -m unittest
 """
 import json
+import os
+import tempfile
 import unittest
 
 import run
@@ -80,6 +82,48 @@ class Answers(unittest.TestCase):
         answer = {'actions': [{'kind': 'task', 'title': 'Task %d' % i} for i in range(9)]}
         out, notes = run.validate(answer, STATE, [], 3)
         self.assertEqual(len(out), 3)
+
+    def test_parts_and_skip(self):
+        parts = run.build_parts(STATE, DECIDED, NOW, 'America/New_York', 5)
+        self.assertEqual(len(parts), 5)
+        self.assertTrue(parts[0].startswith('The owner is person/me. Propose at most 5 actions.'))
+        self.assertIn('Payload shapes:', parts[0])
+        self.assertIn('situations:', parts[0])
+        self.assertIn('activities:', parts[1])
+        self.assertIn('persons:', parts[1])
+        self.assertIn('things:', parts[2])
+        self.assertIn('Open actions', parts[3])
+        self.assertIn('Recent decisions', parts[3])
+        self.assertEqual(parts[4], 'Now: ' + NOW + ', timezone America/New_York. Answer with the JSON object.')
+        self.assertEqual(run.build(STATE, DECIDED, NOW, 'America/New_York', 5), '\n'.join(parts))
+        d = run.digest(parts)
+        self.assertEqual(d, run.digest(run.build_parts(STATE, DECIDED, '2026-09-18T12:05:00Z', 'America/New_York', 5)))
+        self.assertNotEqual(d, run.digest(run.build_parts(dict(STATE, actions=[]), DECIDED, NOW, 'America/New_York', 5)))
+        self.assertTrue(run.should_run({}, d))
+        self.assertFalse(run.should_run({'prompt': d}, d))
+        self.assertTrue(run.should_run({'prompt': d}, d, force=True))
+        self.assertTrue(run.should_run({'prompt': 'other'}, d))
+        with tempfile.TemporaryDirectory() as t:
+            p = os.path.join(t, 'state.json')
+            self.assertEqual(run.recall(p), {})
+            run.remember(p, 7, d)
+            self.assertEqual((run.recall(p)['rev'], run.recall(p)['prompt']), (7, d))
+
+    def test_cache_marks(self):
+        parts = ['a', 'b', 'c']
+        body = run.Anthropic('m', 'k').body('sys', 'a\nb\nc', parts)
+        self.assertEqual(body['system'], [{'type': 'text', 'text': 'sys', 'cache_control': {'type': 'ephemeral'}}])
+        blocks = body['messages'][0]['content']
+        self.assertEqual([b['text'] for b in blocks], ['a', 'b', 'c'])
+        self.assertEqual(['cache_control' in b for b in blocks], [False, True, False])
+        self.assertEqual(run.Anthropic('m', 'k').body('sys', 'plain')['messages'][0]['content'], 'plain')
+        routed = run.analyze.Model('https://openrouter.ai/api/v1', 'm').chat_body('sys', 'a\nb\nc', parts)
+        self.assertEqual(routed['messages'][0]['content'], [{'type': 'text', 'text': 'sys', 'cache_control': {'type': 'ephemeral'}}])
+        self.assertEqual(['cache_control' in b for b in routed['messages'][1]['content']], [False, True, False])
+        self.assertEqual(routed['usage'], {'include': True})
+        local = run.analyze.Model('http://localhost:1234/v1', 'm').chat_body('sys', 'a\nb\nc', parts)
+        self.assertEqual(local['messages'][1]['content'], 'a\nb\nc')
+        self.assertNotIn('usage', local)
 
     def test_model_budget(self):
         self.assertEqual(run.model_from({'model': {'url': 'http://x', 'name': 'm'}}).max_tokens, 8000)

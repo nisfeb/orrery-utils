@@ -49,13 +49,31 @@ curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api
 cd generator && python3 -m unittest                  # the prompt and the validation, no network
 python3 run.py --config config.json --no-model       # the prompt it would send
 python3 run.py --config config.json --dry-run        # ask, print, file nothing
-python3 run.py --config config.json                  # one pass
-python3 run.py --config config.json --loop 3600      # hourly; or let the console run util.json's job
+python3 run.py --config config.json                  # one pass, if anything changed
+python3 run.py --config config.json --force          # one pass regardless
+python3 run.py --config config.json --loop 3600      # look hourly, ask only when something changed; or let the console run util.json's job
 ```
+
+A pass asks the model only when something it would see has changed. The prompt is built with the clock on its last line, and a hash of everything above the clock is remembered after each real pass (in `state.json` next to the config, or where `state` in the config says); the next pass compares its own hash and stops there, free, when they match. A write on the ship that changes no line of the prompt (a sensitive attribute, a body outside the key's kinds) does not count, and neither does the clock; a situation crossing from upcoming to under way does, since the prompt says so. There is no ceiling: a quiet week is a week of no calls. `--force` asks anyway; a dry run never remembers.
+
+The same layout feeds the cache. Through OpenRouter or the Messages API the system prompt and the stable part of the user prompt carry cache marks, so a call within five minutes of another reads the repeated prefix at a tenth of the input price, and the usage line says how much came from the cache. Passes an hour apart do not benefit; a burst of them does.
 
 ## The trial
 
 For the trial the ship's policy has `auto` set to `[]`, so every proposal waits in the inbox and the owner sees the model's judgment before trusting it; the executors (`telegram/bot.py --loop`, `home-assistant/client.py --loop 60`) must be running for approved messages and home actions to happen. Watch the inbox, the `why` on each card, and the printed notes; when the proposals are good, put `task` and `note` back on `auto`.
+
+## What a pass costs
+
+Measured on 2026-09-18 against a state of 143 bodies, Opus 5 through OpenRouter with high reasoning effort: 8,556 tokens in, 2,125 out of which 1,455 were reasoning, $0.096. The rest of the table follows from that split at $5 per million in and $25 per million out; the reasoning share is what changes.
+
+| reasoning | per pass | hourly, never skipping | hourly, per month |
+|---|---|---|---|
+| high (measured) | $0.096 | $2.30 a day | about $69 |
+| medium (estimate) | $0.077 | $1.85 a day | about $56 |
+| low (estimate) | $0.067 | $1.60 a day | about $48 |
+| off (estimate) | $0.060 | $1.44 a day | about $43 |
+
+With the skip, the count of passes is what the bill follows: one per change of the state the key can see, not one per hour. Every call prints `# model usage:` with its tokens and cost on stderr, so the console log carries the real spend.
 
 ## What stays here
 

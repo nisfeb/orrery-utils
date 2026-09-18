@@ -173,9 +173,21 @@ class Model:
             self.name = names[0]
         return self.name
 
-    def chat(self, system, user):
-        body = {'model': self.model_name(), 'max_tokens': self.max_tokens,
-                'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]}
+    def chat_body(self, system, user, parts=None):
+        """The request. With parts (the user prompt in pieces, its volatile
+        tail last) on OpenRouter, every piece is a content block and the
+        system prompt and the last stable piece carry a cache mark, so a
+        prefix the model saw minutes ago is read from the cache at a tenth
+        of the price; anywhere else the pieces are joined into one string."""
+        body = {'model': self.model_name(), 'max_tokens': self.max_tokens}
+        if parts and 'openrouter' in self.url:
+            mark = {'cache_control': {'type': 'ephemeral'}}
+            blocks = [dict({'type': 'text', 'text': t}, **(mark if i == len(parts) - 2 else {})) for i, t in enumerate(parts)]
+            body['messages'] = [{'role': 'system', 'content': [dict({'type': 'text', 'text': system}, **mark)]},
+                                {'role': 'user', 'content': blocks}]
+        else:
+            body['messages'] = [{'role': 'system', 'content': system},
+                                {'role': 'user', 'content': '\n'.join(parts) if parts else user}]
         if self.temperature is not None:
             body['temperature'] = self.temperature
         if self.provider:
@@ -185,7 +197,10 @@ class Model:
         if 'openrouter' in self.url:
             #  the router reports what the call cost, in dollars, with the usage
             body['usage'] = {'include': True}
-        d = self.request('/chat/completions', body)
+        return body
+
+    def chat(self, system, user, parts=None):
+        d = self.request('/chat/completions', self.chat_body(system, user, parts))
         self.report_usage(d.get('usage') if isinstance(d, dict) else None)
         try:
             choice = d['choices'][0]
@@ -208,7 +223,9 @@ class Model:
         if not isinstance(usage, dict):
             return
         details = usage.get('completion_tokens_details') or {}
-        bits = ['prompt %s' % usage.get('prompt_tokens', '?'), 'completion %s' % usage.get('completion_tokens', '?')]
+        cached = (usage.get('prompt_tokens_details') or {}).get('cached_tokens') if isinstance(usage.get('prompt_tokens_details'), dict) else None
+        bits = ['prompt %s' % usage.get('prompt_tokens', '?') + (' (%s from the cache)' % cached if cached else ''),
+                'completion %s' % usage.get('completion_tokens', '?')]
         if isinstance(details, dict) and details.get('reasoning_tokens') is not None:
             bits.append('of which reasoning %s' % details['reasoning_tokens'])
         if usage.get('cost') is not None:
