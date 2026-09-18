@@ -372,6 +372,31 @@ class LocalTime(unittest.TestCase):
                 os.environ['TZ'] = was
             time.tzset()
 
+class Budget(unittest.TestCase):
+    """The model block: an include merges blocks field by field, a reasoning
+    model sends no temperature, and the budget is the block's."""
+
+    def test_a_block_in_both_files_merges_field_by_field(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            os.mkdir(os.path.join(d, 'generator'))
+            with open(os.path.join(d, 'config.json'), 'w') as f:
+                json.dump({'model': {'url': 'https://router.example/v1', 'name': 'small', 'api_key': 'k'}, 'state': 'root.json'}, f)
+            with open(os.path.join(d, 'generator', 'config.json'), 'w') as f:
+                json.dump({'include': '../config.json', 'model': {'name': 'big', 'reasoning': {'effort': 'high'}, 'max_tokens': 32000}}, f)
+            cfg = analyze.load_config(os.path.join(d, 'generator', 'config.json'))
+            self.assertEqual(cfg['model'], {'url': 'https://router.example/v1', 'name': 'big', 'api_key': 'k',
+                                            'reasoning': {'effort': 'high'}, 'max_tokens': 32000})
+            self.assertEqual(cfg['state'], 'root.json')
+
+    def test_a_reasoning_model_gets_no_temperature(self):
+        self.assertIsNone(analyze.Model.from_config({'url': 'http://x', 'reasoning': {'effort': 'high'}}).temperature)
+        self.assertEqual(analyze.Model.from_config({'url': 'http://x', 'reasoning': {'enabled': False}}).temperature, 0.0)
+        self.assertEqual(analyze.Model.from_config({'url': 'http://x'}).temperature, 0.0)
+        self.assertIsNone(analyze.Model.from_config({'url': 'http://x', 'temperature': None}).temperature)
+        self.assertEqual(analyze.Model.from_config({'url': 'http://x', 'max_tokens': 32000}).max_tokens, 32000)
+
+
 if __name__ == '__main__':
     unittest.main()
 

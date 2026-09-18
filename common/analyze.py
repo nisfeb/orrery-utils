@@ -87,14 +87,28 @@ def secret(block, field, default_env):
 def load_config(path):
     """A reader's config.json. An "include" names a shared file, relative to
     this one, whose keys fill in what this file leaves out, so one model block
-    serves every reader; a key this file sets wins whole."""
+    serves every reader. A block both files hold as an object merges field by
+    field, this file's fields winning: the generator names a stronger model
+    and a reasoning budget in its own "model" block and still takes the
+    shared block's url and api_key. Anything else this file sets wins whole."""
     with open(path) as f:
         cfg = json.load(f)
     shared = cfg.pop('include', None)
     if shared:
         with open(os.path.join(os.path.dirname(os.path.abspath(path)), shared)) as f:
-            cfg = dict(json.load(f), **cfg)
+            base = json.load(f)
+        for k, v in base.items():
+            if k not in cfg:
+                cfg[k] = v
+            elif isinstance(v, dict) and isinstance(cfg[k], dict):
+                cfg[k] = dict(v, **cfg[k])
     return cfg
+
+
+def reasoning_on(reasoning):
+    """Whether a "reasoning" block asks for reasoning: any object but
+    {"enabled": false}."""
+    return isinstance(reasoning, dict) and reasoning.get('enabled') is not False
 
 
 class Model:
@@ -109,6 +123,9 @@ class Model:
         #  the answer's budget; a model that reasons spends it on the reasoning
         #  first, so a long answer from such a model needs more than the default
         self.max_tokens = max_tokens
+        #  None sends no temperature: a model that reasons refuses one
+        if temperature is None or reasoning_on(reasoning):
+            self.temperature = None
         #  a hosted endpoint (OpenRouter and the like) wants a key; LM Studio does not
         self.api_key = api_key
         #  OpenRouter's routing rules for these requests alone, such as
@@ -128,6 +145,7 @@ class Model:
             #  never echo the field: a key pasted there by mistake would land on the terminal
             raise SystemExit('no key for the model: put it in model.api_key, or set the variable model.api_key_env names')
         return cls(mc.get('url', DEFAULT_URL), mc.get('name'), int(mc.get('timeout', 180)),
+                   temperature=mc.get('temperature', 0.0),
                    api_key=key, provider=mc.get('provider'), reasoning=mc.get('reasoning'),
                    max_tokens=int(mc.get('max_tokens', 2000)))
 
@@ -155,8 +173,10 @@ class Model:
         return self.name
 
     def chat(self, system, user):
-        body = {'model': self.model_name(), 'temperature': self.temperature, 'max_tokens': self.max_tokens,
+        body = {'model': self.model_name(), 'max_tokens': self.max_tokens,
                 'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]}
+        if self.temperature is not None:
+            body['temperature'] = self.temperature
         if self.provider:
             body['provider'] = self.provider
         if self.reasoning:
