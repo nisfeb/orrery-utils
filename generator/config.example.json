@@ -1,6 +1,6 @@
 {
   "include": "../config.json",
-  "model": {"name": "anthropic/claude-fable-5.1", "reasoning": {"effort": "high"}, "max_tokens": 32000, "timeout": 600},
+  "model": {"name": "anthropic/claude-opus-5", "reasoning": {"effort": "high"}, "max_tokens": 32000, "timeout": 600},
   "orrery": {"url": "https://your-ship.example", "token": ""},
   "max_actions": 5,
   "timezone": "America/New_York"
