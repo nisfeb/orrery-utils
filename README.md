@@ -19,7 +19,7 @@ curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api
 }'
 ```
 
-The answer carries the token once; the ship keeps a salted hash. The integration sends it as `Authorization: Bearer <token>` with no cookie. `"sensitive": "write"` (orrery version 13) lets a reader store the medical and money facts it learns from other people under `health` and `income` while every view keeps hiding them from it: it writes what it cannot read. Set `"sensitive_write": true` in the reader's config so the analyst keeps those rows instead of dropping them as unlisted. Ask for the smallest scope that does the job: a reader that only files tasks needs no action kinds but `task`, and a client that only reads needs `"write": false`.
+The answer carries the token once; the ship keeps a salted hash. The integration sends it as `Authorization: Bearer <token>` with no cookie. `"sensitive": "write"` (orrery version 13) lets a reader store the medical and money facts it learns from other people under `health` and `income` while every view keeps hiding them from it: it writes what it cannot read. Such a key's schema view lists the two names, so the analyst keeps those rows; a key without the flag never sees the names and the analyst drops them as unlisted. Ask for the smallest scope that does the job: a reader that only files tasks needs no action kinds but `task`, and a client that only reads needs `"write": false`.
 
 Everything a key writes is signed with the key's identity, whatever the request says, and a key never sees an attribute the owner listed under `sensitive` in the policy. The full rules are in orrery's `docs/keys.md`.
 
