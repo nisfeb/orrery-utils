@@ -88,10 +88,11 @@ class Answers(unittest.TestCase):
         self.assertEqual(len(parts), 5)
         self.assertTrue(parts[0].startswith('The owner is person/me. Propose at most 5 actions.'))
         self.assertIn('Payload shapes:', parts[0])
-        self.assertIn('situations:', parts[0])
-        self.assertIn('activities:', parts[1])
+        self.assertIn('things:', parts[0])
+        self.assertIn('places:', parts[0])
         self.assertIn('persons:', parts[1])
-        self.assertIn('things:', parts[2])
+        self.assertIn('activities:', parts[1])
+        self.assertIn('situations:', parts[2])
         self.assertIn('Open actions', parts[3])
         self.assertIn('Recent decisions', parts[3])
         self.assertEqual(parts[4], 'Now: ' + NOW + ', timezone America/New_York. Answer with the JSON object.')
@@ -110,19 +111,19 @@ class Answers(unittest.TestCase):
             self.assertEqual((run.recall(p)['rev'], run.recall(p)['prompt']), (7, d))
 
     def test_cache_marks(self):
-        parts = ['a', 'b', 'c']
-        body = run.Anthropic('m', 'k').body('sys', 'a\nb\nc', parts)
+        parts = ['a', 'b', 'c', 'd', 'e']
+        body = run.Anthropic('m', 'k').body('sys', '\n'.join(parts), parts)
         self.assertEqual(body['system'], [{'type': 'text', 'text': 'sys', 'cache_control': {'type': 'ephemeral'}}])
         blocks = body['messages'][0]['content']
-        self.assertEqual([b['text'] for b in blocks], ['a', 'b', 'c'])
-        self.assertEqual(['cache_control' in b for b in blocks], [False, True, False])
+        self.assertEqual([b['text'] for b in blocks], parts)
+        self.assertEqual(['cache_control' in b for b in blocks], [True, True, True, False, False])
         self.assertEqual(run.Anthropic('m', 'k').body('sys', 'plain')['messages'][0]['content'], 'plain')
-        routed = run.analyze.Model('https://openrouter.ai/api/v1', 'm').chat_body('sys', 'a\nb\nc', parts)
+        routed = run.analyze.Model('https://openrouter.ai/api/v1', 'm').chat_body('sys', '\n'.join(parts), parts)
         self.assertEqual(routed['messages'][0]['content'], [{'type': 'text', 'text': 'sys', 'cache_control': {'type': 'ephemeral'}}])
-        self.assertEqual(['cache_control' in b for b in routed['messages'][1]['content']], [False, True, False])
+        self.assertEqual(['cache_control' in b for b in routed['messages'][1]['content']], [True, True, True, False, False])
         self.assertEqual(routed['usage'], {'include': True})
-        local = run.analyze.Model('http://localhost:1234/v1', 'm').chat_body('sys', 'a\nb\nc', parts)
-        self.assertEqual(local['messages'][1]['content'], 'a\nb\nc')
+        local = run.analyze.Model('http://localhost:1234/v1', 'm').chat_body('sys', '\n'.join(parts), parts)
+        self.assertEqual(local['messages'][1]['content'], '\n'.join(parts))
         self.assertNotIn('usage', local)
 
     def test_model_budget(self):

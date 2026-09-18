@@ -112,6 +112,12 @@ def reasoning_on(reasoning):
     return isinstance(reasoning, dict) and reasoning.get('enabled') is not False
 
 
+#  the pieces of a parted prompt that carry a cache mark: the first three,
+#  which a caller orders from the least changing; a provider allows four
+#  marks and the system prompt takes the fourth
+CACHED_PARTS = (0, 1, 2)
+
+
 class Model:
     """An OpenAI-compatible chat endpoint."""
 
@@ -174,15 +180,16 @@ class Model:
         return self.name
 
     def chat_body(self, system, user, parts=None):
-        """The request. With parts (the user prompt in pieces, its volatile
-        tail last) on OpenRouter, every piece is a content block and the
-        system prompt and the last stable piece carry a cache mark, so a
-        prefix the model saw minutes ago is read from the cache at a tenth
-        of the price; anywhere else the pieces are joined into one string."""
+        """The request. With parts (the user prompt in pieces, the least
+        changing first and the volatile tail last) on OpenRouter, every piece
+        is a content block and the system prompt and the first three pieces
+        carry a cache mark, so a call minutes after another reads every piece
+        up to the first changed one from the cache at a tenth of the price;
+        anywhere else the pieces are joined into one string."""
         body = {'model': self.model_name(), 'max_tokens': self.max_tokens}
         if parts and 'openrouter' in self.url:
             mark = {'cache_control': {'type': 'ephemeral'}}
-            blocks = [dict({'type': 'text', 'text': t}, **(mark if i == len(parts) - 2 else {})) for i, t in enumerate(parts)]
+            blocks = [dict({'type': 'text', 'text': t}, **(mark if i in CACHED_PARTS else {})) for i, t in enumerate(parts)]
             body['messages'] = [{'role': 'system', 'content': [dict({'type': 'text', 'text': system}, **mark)]},
                                 {'role': 'user', 'content': blocks}]
         else:

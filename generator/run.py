@@ -32,6 +32,10 @@ import analyze  # noqa: E402
 
 PROMPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'common', 'generator-prompt.md')
 RECENT = 60          # decided actions shown to the model as "not again"
+#  the pieces of the user prompt that carry a cache mark: the three that
+#  change least, since a provider allows four marks and the system prompt
+#  takes one; each mark is a point the next call can resume the cache from
+CACHED_PARTS = analyze.CACHED_PARTS
 MAX_BODIES = 300
 
 
@@ -95,7 +99,7 @@ class Anthropic:
         piece of the user prompt marked for the cache when parts are given."""
         mark = {'cache_control': {'type': 'ephemeral'}}
         if parts:
-            content = [dict({'type': 'text', 'text': t}, **(mark if i == len(parts) - 2 else {})) for i, t in enumerate(parts)]
+            content = [dict({'type': 'text', 'text': t}, **(mark if i in CACHED_PARTS else {})) for i, t in enumerate(parts)]
             system = [dict({'type': 'text', 'text': system}, **mark)]
         else:
             content = user
@@ -189,13 +193,15 @@ def line(b, now):
 
 
 def build_parts(state, decided, now, tz, limit):
-    """The user prompt in five pieces, stable ones first: the header with
-    the payload shapes and the situations; the activities and people; the
-    things, places, orgs and notes; the open actions and recent decisions;
-    and last the time now. The clock sits at the end so that the rest is
-    the same text from one pass to the next while nothing changed: the
-    pass is skipped on that, and a model call minutes after another reads
-    the repeated prefix from the cache."""
+    """The user prompt in five pieces, the ones that change least first:
+    the header with the payload shapes and the things, places, orgs and
+    notes; the people and activities; the situations; the open actions and
+    recent decisions; and last the time now. The clock sits at the end so
+    that the rest is the same text from one pass to the next while nothing
+    changed: the pass is skipped on that. The first three pieces each carry
+    a cache mark on the wire, so a call minutes after another reads every
+    piece up to the first changed one from the cache: a filing, which
+    changes only the fourth, leaves the first three cached."""
     lines = ['The owner is %s. Propose at most %d actions.' % (state.get('me', 'person/me'), limit)]
     schema = state.get('schema') or {}
     lines.append('Action kinds: ' + ', '.join(schema.get('actions') or ['task', 'note']))
@@ -206,7 +212,7 @@ def build_parts(state, decided, now, tz, limit):
             lines.append('  %s: %s' % (k, json.dumps(shape)))
     bodies = [b for b in state.get('bodies', []) if isinstance(b, dict)][:MAX_BODIES]
     hidden = {b['id'] for b in bodies if b['id'].startswith('situation/') and phase(b, now) in ('closed', 'cancelled', 'over')}
-    parts, groups = [], (('situation',), ('activity', 'person'), ('thing', 'place', 'org', 'note'))
+    parts, groups = [], (('thing', 'place', 'org', 'note'), ('person', 'activity'), ('situation',))
     for kinds in groups:
         for kind in kinds:
             rows = [b for b in bodies if b.get('kind') == kind and b['id'] not in hidden]
