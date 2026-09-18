@@ -265,13 +265,14 @@ def run(argv=None):
     ap.add_argument('--loop', type=int, default=0, help='repeat every N seconds')
     ap.add_argument('--show-prompt', action='store_true', help='print the user prompt before asking')
     ap.add_argument('--no-model', action='store_true', help='build and print the prompt, ask nothing, file nothing')
+    ap.add_argument('--answer', help='take the model answer from this file instead of asking a model (a replay, or an analyst that is not an API)')
     args = ap.parse_args(argv)
     cfg = analyze.load_config(args.config)
     token = analyze.secret(cfg.get('orrery'), 'token', 'ORRERY_TOKEN')
     if not token:
         raise SystemExit('no orrery key: put it in orrery.token, or set the variable orrery.token_env names')
     ship = (NoShip if args.dry_run or args.no_model else Ship)(cfg['orrery']['url'], token)
-    model = None if args.no_model else model_from(cfg)
+    model = None if (args.no_model or args.answer) else model_from(cfg)
     limit = int(cfg.get('max_actions', 5))
     with open(PROMPT_PATH, encoding='utf-8') as f:
         system = f.read().strip()
@@ -287,7 +288,7 @@ def run(argv=None):
         if args.no_model:
             return 0
         try:
-            raw = model.chat(system, user)
+            raw = open(args.answer, encoding='utf-8').read() if args.answer else model.chat(system, user)
             answer = analyze.parse_json(raw)
         except (RuntimeError, ValueError) as e:
             print('model:', str(e)[:300], file=sys.stderr)
