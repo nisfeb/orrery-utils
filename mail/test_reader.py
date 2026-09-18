@@ -187,6 +187,12 @@ class WithModel(unittest.TestCase):
         self.assertIn('person/sarah | Sarah | wife', reader.MODEL.asked[0])
         self.assertIn('Running late, see you at 8.', reader.MODEL.asked[0])
 
+    def test_new_names_for_a_known_body_do_not_break_the_run(self):
+        reader.MODEL = reader.analyze.FakeModel(json.dumps({'bodies': [{'id': 'person/sarah', 'aliases': ['Sally']}], 'observations': []}))
+        facts = facts_for('personal', self.KnowingShip())
+        self.assertEqual(facts.bodies, [{'id': 'person/sarah', 'aliases': ['Sally']}])
+        self.assertIn('Sally', [b for b in reader.CONTEXT['bodies'] if b['id'] == 'person/sarah'][0]['aliases'])
+
     def test_the_rules_still_come_first(self):
         facts = facts_for('shipped', self.KnowingShip())
         self.assertEqual(reader.MODEL.asked, [])

@@ -523,6 +523,21 @@ def analyze(model, messages, context):
     return validate(answer, messages, context)
 
 
+def remember(context, bodies):
+    """Fold the bodies an answer made into the context the next message is read
+    against: a new body joins it, and an aliases-only row (new names for a body
+    the ship has) adds its aliases to that body."""
+    by_id = {b['id']: b for b in context.setdefault('bodies', [])}
+    for b in bodies:
+        if b['id'] in by_id:
+            have = by_id[b['id']].setdefault('aliases', [])
+            have.extend(a for a in b.get('aliases', ()) if a not in have)
+        else:
+            row = {'id': b['id'], 'name': b.get('name', ''), 'aliases': list(b.get('aliases', ()))}
+            context['bodies'].append(row)
+            by_id[b['id']] = row
+
+
 def to_batch(facts, source_kind, by_default=None):
     """The observe batch and the actions for a ship: each row gets its
     source pointer from its message id; the model's bookkeeping keys go."""

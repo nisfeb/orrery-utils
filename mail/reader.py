@@ -542,8 +542,12 @@ def classify_with_model(msg, facts, ship):
     facts.notes.extend(got['notes'])
     bodies, observations, actions = analyze.to_batch(got, SOURCE)
     for b in bodies:
-        facts.body(b['id'], b['name'], b.get('aliases', ()))
-        ctx['bodies'].append({'id': b['id'], 'name': b['name'], 'aliases': list(b.get('aliases', ()))})
+        if 'name' in b:
+            facts.body(b['id'], b['name'], b.get('aliases', ()))
+        elif not any(x['id'] == b['id'] for x in facts.bodies):
+            #  new names for a body the ship has: the aliases alone, so its name stays
+            facts.bodies.append(dict(b))
+    analyze.remember(ctx, bodies)
     facts.observations.extend(observations)
     facts.actions.extend(actions)
     return True
