@@ -197,6 +197,23 @@ class Answers(unittest.TestCase):
         self.assertEqual([(o['attr'], o['value']) for o in facts['observations']], [('status', 'on jury duty')])
         self.assertEqual(facts['notes'], [])
 
+    def test_context_messages_yield_no_facts(self):
+        window = [{'id': 'c1', 'at': '2026-09-18T11:00:00Z', 'who': 'person/sarah', 'text': 'jury duty tomorrow, ugh', 'context': True},
+                  {'id': 'n1', 'at': '2026-09-18T12:00:00Z', 'who': 'person/sarah', 'text': 'still here, want to scream'}]
+        m = analyze.FakeModel(json.dumps({'observations': [
+            {'subject': 'person/sarah', 'attr': 'status', 'value': 'jury duty tomorrow', 'message': 'c1'},
+            {'subject': 'person/sarah', 'attr': 'status', 'value': 'on jury duty', 'message': 'n1'},
+            {'subject': 'person/sarah', 'attr': 'location', 'value': 'court', 'message': 'nope'}],
+            'actions': [{'kind': 'task', 'title': 'x', 'message': 'c1'}]}))
+        facts = analyze.analyze(m, window, CONTEXT)
+        self.assertEqual([(o['value'], o['message']) for o in facts['observations']], [('on jury duty', 'n1'), ('court', 'n1')])
+        self.assertEqual(facts['actions'], [])
+        self.assertIn('Earlier messages, context only', m.asked[0])
+        self.assertIn('--- context c1', m.asked[0])
+        self.assertIn('--- message n1', m.asked[0])
+        self.assertEqual(analyze.analyze(m, [dict(window[0])], CONTEXT)['notes'], [])
+        self.assertEqual(len(m.asked), 1)
+
     def test_context_from_state(self):
         state = {'me': 'person/me', 'bodies': [{'id': 'person/me', 'name': 'me', 'aliases': ['I']}],
                  'schema': {'kinds': {'person': {'attrs': ['status']}}}}
