@@ -10,11 +10,17 @@ Two passes over a ship's state.
                name, two persons whose names or addresses match) become merge
                proposals: actions of kind "merge" for the owner to approve,
                applied with --apply through the ship's merge op.
+  retire       situations that are over (ended in the past, or started long
+               ago with nothing said since) are closed with status = closed
+               written at the time they ended; --prune DAYS also deletes
+               closed situations that ended more than DAYS ago.
 
     python3 reconcile.py --ship https://your-ship.example --jar jar activities --dry-run
     python3 reconcile.py --ship https://your-ship.example --jar jar activities
     python3 reconcile.py --ship https://your-ship.example --jar jar people            # propose
     python3 reconcile.py --ship https://your-ship.example --jar jar people --apply    # run the approved merges
+    python3 reconcile.py --ship https://your-ship.example --jar jar retire --dry-run
+    python3 reconcile.py --ship https://your-ship.example --jar jar retire --prune 90
     python3 reconcile.py --state saved-state.json activities --dry-run                # from a file, no ship
 
 Standard library only. Runs with the owner cookie (a curl jar), because
@@ -28,7 +34,7 @@ import sys
 import urllib.error
 import urllib.request
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analyze  # noqa: E402
@@ -382,6 +388,105 @@ def apply_merges(ship):
         print('merged' if ok else 'failed', a['title'], '' if ok else str(d)[:200])
 
 
+# ==  retire: close what is over
+
+def last_word(body, reader):
+    """(started, ended, status, latest) for a situation: the folded values,
+    the timeline's when the fold hides a future-dated row, and the time of
+    the newest observation of any kind."""
+    attrs = body.get('attrs') or {}
+    started = value_of(attrs, 'started')
+    ended = value_of(attrs, 'ended')
+    status = value_of(attrs, 'status')
+    st = attrs.get('status') if isinstance(attrs.get('status'), dict) else {}
+    status_at = st.get('at') if isinstance(st, dict) else None
+    latest = None
+    if reader is not None:
+        code, view = reader('GET', '/body/' + body['id'])
+        rows = [o for o in (view or {}).get('observations', []) if isinstance(view, dict) and o.get('status') != 'retracted']
+        for o in rows:
+            if o['attr'] == 'started' and not started and isinstance(o.get('value'), str):
+                started = o['value']
+            if o['attr'] == 'ended' and not ended and isinstance(o.get('value'), str):
+                ended = o['value']
+            if isinstance(o.get('seen'), str) and (latest is None or o['seen'] > latest):
+                latest = o['seen']
+    return (analyze.iso_or_none(started) if isinstance(started, str) else None,
+            analyze.iso_or_none(ended) if isinstance(ended, str) else None,
+            status, latest or body.get('created'), analyze.iso_or_none(status_at) if isinstance(status_at, str) else None)
+
+
+def after(at, status_at):
+    """A close time that wins the fold: at, or one second past the live
+    status row when that row is later (a reminder mail can say "open" after
+    the event ended)."""
+    if status_at and status_at >= at:
+        return (datetime.fromisoformat(status_at.replace('Z', '+00:00')) + timedelta(seconds=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    return at
+
+
+TRIP_DAYS = 7
+
+
+def trip_end(started):
+    return (datetime.fromisoformat(started.replace('Z', '+00:00')) + timedelta(days=TRIP_DAYS)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def plan_retire(state, reader=None, stale_days=30, now=None):
+    """The situations to close, each with the time to close it at: one whose
+    end has passed closes at its end; one with a start but no end, started
+    more than stale_days ago with nothing observed since, closes at its
+    newest observation. Activities and open situations still running are
+    left alone."""
+    now = now or datetime.now(timezone.utc).replace(microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
+    stale = (datetime.fromisoformat(now.replace('Z', '+00:00')) - timedelta(days=stale_days)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    plans = []
+    for b in state.get('bodies', []):
+        if b.get('kind') != 'situation':
+            continue
+        started, ended, status, latest, status_at = last_word(b, reader)
+        if status == 'closed':
+            continue
+        if ended and ended < now:
+            plans.append({'id': b['id'], 'name': b.get('name', ''), 'at': after(ended, status_at), 'why': 'ended ' + ended})
+        elif started and not ended and TRIP_RE.match(b['id']) and trip_end(started) < now:
+            #  a trip the mail never gave an end: over a week after it started
+            plans.append({'id': b['id'], 'name': b.get('name', ''), 'at': after(trip_end(started), status_at), 'why': 'a trip started ' + started + ' with no end'})
+        elif started and started < stale and (not latest or latest < stale):
+            plans.append({'id': b['id'], 'name': b.get('name', ''), 'at': after(latest or started, status_at),
+                          'why': 'started %s, nothing since %s' % (started, latest or started)})
+    return plans
+
+
+def apply_retire(ship, plans):
+    rows = [{'subject': p['id'], 'attr': 'status', 'value': 'closed', 'at': p['at'], 'conf': 90,
+             'source': {'kind': 'reconcile', 'id': 'retire/' + p['id']}} for p in plans]
+    while rows:
+        code, d = ship.call('POST', '/observe', {'bodies': [], 'observations': rows[:200]})
+        rows = rows[200:]
+        if code != 200:
+            print('observe refused', code, str(d)[:200], file=sys.stderr)
+            return False
+        for r in (d or {}).get('observations', []):
+            if not r.get('ok'):
+                print('row refused:', r.get('error'), file=sys.stderr)
+    return True
+
+
+def plan_prune(state, reader, days, now=None):
+    """Closed situations that ended more than days ago, to delete."""
+    now = now or datetime.now(timezone.utc).replace(microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
+    cut = (datetime.fromisoformat(now.replace('Z', '+00:00')) - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    out = []
+    for b in state.get('bodies', []):
+        if b.get('kind') != 'situation':
+            continue
+        started, ended, status, latest, status_at = last_word(b, reader)
+        if status == 'closed' and (ended or latest) and (ended or latest) < cut:
+            out.append(b['id'])
+    return out
+
+
 # ==  the schema
 
 def ensure_activity_kind(ship, dry):
@@ -405,10 +510,12 @@ def run(argv=None):
     ap.add_argument('--ship', help='the ship URL')
     ap.add_argument('--jar', help='a curl cookie jar with the owner cookie')
     ap.add_argument('--state', help='a saved state view instead of a ship (dry run only)')
-    ap.add_argument('pass_', choices=['activities', 'people'], metavar='PASS')
+    ap.add_argument('pass_', choices=['activities', 'people', 'retire'], metavar='PASS')
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--apply', action='store_true', help='people: run the approved merges instead of proposing')
     ap.add_argument('--min', type=int, default=3, help='activities: occurrences needed to make an activity')
+    ap.add_argument('--stale', type=int, default=30, help='retire: days after which a situation with no end and nothing new is closed')
+    ap.add_argument('--prune', type=int, help='retire: also delete closed situations that ended more than this many days ago')
     args = ap.parse_args(argv)
     if args.state:
         with open(args.state) as f:
@@ -429,6 +536,23 @@ def run(argv=None):
             return 0
         ensure_activity_kind(ship, False)
         return 0 if apply_activities(ship, plans) else 1
+    if args.pass_ == 'retire':
+        reader = None if args.state else ship.call
+        plans = plan_retire(state, reader, args.stale)
+        for p in plans:
+            print('close %s (%s): %s' % (p['id'], p['name'], p['why']))
+        print('%d situation(s) to close' % len(plans))
+        if not args.dry_run and plans and not apply_retire(ship, plans):
+            return 1
+        if args.prune:
+            gone = plan_prune(state, reader, args.prune)
+            print('%d closed situation(s) older than %d days to delete' % (len(gone), args.prune))
+            if not args.dry_run:
+                for bid in gone:
+                    code, d = ship.call('DELETE', '/body/' + bid)
+                    if code not in (200, 404):
+                        print('delete refused for', bid, code, str(d)[:120], file=sys.stderr)
+        return 0
     if args.apply:
         if args.dry_run:
             raise SystemExit('--apply is a real run')

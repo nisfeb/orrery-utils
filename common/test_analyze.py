@@ -173,6 +173,15 @@ class Answers(unittest.TestCase):
         self.assertIn('person/sarah | Sarah | wife', m.asked[0])
         self.assertIn('--- message telegram/1001/11 | 2026-09-16T23:40:00Z | from person/me', m.asked[0])
 
+    def test_context_leaves_out_long_closed_situations(self):
+        state = {'me': 'person/me', 'bodies': [
+            {'id': 'situation/old', 'name': 'Old', 'aliases': [], 'attrs': {'status': {'value': 'closed', 'at': '2026-01-01T00:00:00Z'}, 'ended': {'value': '2026-01-01T00:00:00Z'}}},
+            {'id': 'situation/recent', 'name': 'Recent', 'aliases': [], 'attrs': {'status': {'value': 'closed', 'at': '2099-01-01T00:00:00Z'}, 'ended': {'value': '2099-01-01T00:00:00Z'}}},
+            {'id': 'situation/open', 'name': 'Open', 'aliases': [], 'attrs': {'status': {'value': 'open', 'at': '2026-01-01T00:00:00Z'}}},
+            {'id': 'person/me', 'name': 'me', 'aliases': [], 'attrs': {}}], 'schema': {'kinds': {}}}
+        ids = [b['id'] for b in analyze.context_from_state(state, 'mail')['bodies']]
+        self.assertEqual(ids, ['situation/recent', 'situation/open', 'person/me'])
+
     def test_context_from_state(self):
         state = {'me': 'person/me', 'bodies': [{'id': 'person/me', 'name': 'me', 'aliases': ['I']}],
                  'schema': {'kinds': {'person': {'attrs': ['status']}}}}

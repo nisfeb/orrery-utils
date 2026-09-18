@@ -55,9 +55,12 @@ python3 reconcile.py --ship https://your-ship.example --jar jar activities --dry
 python3 reconcile.py --ship https://your-ship.example --jar jar activities
 python3 reconcile.py --ship https://your-ship.example --jar jar people              # files merge proposals
 python3 reconcile.py --ship https://your-ship.example --jar jar people --apply      # runs the approved merges
+python3 reconcile.py --ship https://your-ship.example --jar jar retire                # closes situations that are over
 ```
 
 `activities` groups situations that are occurrences of one repeating event: by calendar id when the body id carries one (`situation/cal-...-<uid>-<n>`), otherwise by identical title; groups whose common title normalises alike are one activity. Each group of at least three (`--min`) becomes `activity/<slug>` with the group's most common title as its name, the other titles and the calendar ids as aliases, `status` `active`, `location` and `participants` from the occurrences, and one `last` observation per dated occurrence at that occurrence's start, expiring at its end. The occurrence bodies are deleted. Trips (`situation/<date>-trip`) and one-offs are left alone. The schema gains the `activity` kind if it lacks it.
+
+`retire` closes what is over: a situation whose `ended` has passed gets `status = closed` written at that end (one second after a later `open` row when a reminder said "open" after the event), a trip from the mail rule with no end closes a week after it starts, and a situation with a start but no end that began more than `--stale` days ago (30) with nothing observed since closes at its newest observation. A closed situation leaves everyone's `involved` list and the open list; the body and its timeline stay. `--prune DAYS` also deletes closed situations that ended more than DAYS ago, for a ship that wants old situations gone rather than closed. The analyst's context leaves out situations closed more than thirty days ago, so the model is not offered them as referents.
 
 Consolidation runs off the ship on purpose while its rules are still being tuned. Once they hold still, the plan is to port it into orrery itself: the people pass first (a `merge` proposal filed by the writer when a new body matches an existing one, using the ship's own resolve), then the activities fold as a writer op on a nightly tick, so no timer and no owner cookie are needed.
 
