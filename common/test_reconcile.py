@@ -124,6 +124,45 @@ class Decisions(unittest.TestCase):
         self.assertEqual(titles, ['Merge person/d into person/e', 'Merge person/f into person/g'])
 
 
+class Participants(unittest.TestCase):
+    def test_names_in_titles(self):
+        n = reconcile.names_in
+        self.assertEqual(n('Adelaide- Ballet/Tap'), (['Adelaide'], None))
+        self.assertEqual(n('Rose and Linus- Opti Sail'), (['Rose', 'Linus'], None))
+        self.assertEqual(n('Magnus Birthday'), (['Magnus'], None))
+        self.assertEqual(n("Seamus's birthday party"), (['Seamus'], None))
+        self.assertEqual(n('Magnus Fencing Lesson'), ([], 'Magnus'))
+        self.assertEqual(n('Nutcracker rehearsal'), ([], 'Nutcracker'))
+        self.assertEqual(n('Ballet'), ([], 'Ballet'))
+        self.assertEqual(n('gym'), ([], None))
+
+    def test_people_out_of_titles(self):
+        def act(bid, name, parts=()):
+            b = sit(bid, name, participants=parts)
+            b['kind'] = 'activity' if bid.startswith('activity/') else 'situation'
+            return b
+        state = {'bodies': [
+            {'id': 'person/me', 'kind': 'person', 'name': 'jackson', 'aliases': ['I'], 'attrs': {}, 'created': '2026-01-01T00:00:00Z'},
+            {'id': 'person/linus', 'kind': 'person', 'name': 'Linus Egan', 'aliases': [], 'attrs': {}, 'created': '2026-01-01T00:00:00Z'},
+            act('activity/adelaide-ballet-tap', 'Adelaide- Ballet/Tap', ['person/me']),
+            act('activity/rose-and-linus-opti-sail', 'Rose and Linus- Opti Sail'),
+            act('activity/magnus-fencing-lesson', 'Magnus Fencing Lesson'),
+            act('situation/magnus-birthday', 'Magnus Birthday'),
+            act('activity/nutcracker-rehearsal', 'Nutcracker rehearsal'),
+            act('situation/jackson-brave', 'Jackson Brave Together'),
+        ]}
+        plan = reconcile.plan_participants(state)
+        self.assertEqual([c['id'] for c in plan['creates']], ['person/adelaide', 'person/magnus', 'person/rose'])
+        rows = {(r['subject'], r['value']['ref']) for r in plan['rows']}
+        self.assertEqual(rows, {('activity/adelaide-ballet-tap', 'person/adelaide'),
+                                ('activity/rose-and-linus-opti-sail', 'person/rose'),
+                                ('activity/rose-and-linus-opti-sail', 'person/linus'),
+                                ('activity/magnus-fencing-lesson', 'person/magnus'),
+                                ('situation/magnus-birthday', 'person/magnus'),
+                                ('situation/jackson-brave', 'person/me')})
+        self.assertEqual(plan['unsure'], ['Nutcracker'])
+
+
 class Retire(unittest.TestCase):
     NOW = '2026-09-18T12:00:00Z'
 
