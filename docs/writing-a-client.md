@@ -15,6 +15,7 @@ Before making a body for an event or a person, ask the ship: `GET /apps/orrery/a
 - A hit of kind `person`: the same person, whatever the name on the message. Use that id.
 - No hit, and the event repeats (the calendar says so, or the title has been seen before): create one `activity` with `schedule`, `cadence`, `location`, `participants` and `organizer`, and the occurrences as `last` rows. Give it the calendar UID and the title variants as aliases.
 - No hit, and it happens once: a `situation` with `started`, `ended`, `location` and `participants`.
+- A title that names who the event is for names a participant: "Adelaide- Ballet/Tap", "Rose and Leo- Opti Sail", "Milo Birthday". Resolve the name; when nobody by that name exists, create the person with the first name as the body's name and add them as a participant. Do not turn a production or a place into a person: "Nutcracker rehearsal" names nobody. The owner never seeds their household by hand; the data says who is in it.
 
 `common/analyze.py` has the two functions that decide sameness the way reconcile does: `normalize_title` (prefixes like "Reminder:", dates, times and weekdays stripped) and `same_person` (every word of the shorter name in the longer, role words like "wife" ignored, a one-word name must be the first name). Use them, or `validate`, which applies both to a whole answer and folds twins into the bodies the ship has.
 

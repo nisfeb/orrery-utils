@@ -10,6 +10,12 @@ Two passes over a ship's state.
                name, two persons whose names or addresses match) become merge
                proposals: actions of kind "merge" for the owner to approve,
                applied with --apply through the ship's merge op.
+               The pass also reads people out of titles: "Adelaide- Ballet/Tap"
+               and "Rose and Leo- Opti Sail" name participants, "Milo
+               Birthday" names a person, and a title that starts with a
+               known person's first name names them too. Missing people are
+               created and every activity or situation whose title names
+               them gets them as participants.
   retire       situations that are over (ended in the past, or started long
                ago with nothing said since) are closed with status = closed
                written at the time they ended; --prune DAYS also deletes
@@ -487,6 +493,88 @@ def plan_prune(state, reader, days, now=None):
     return out
 
 
+# ==  people out of titles
+
+DASH_RE = re.compile(r"^([A-Z][a-z]+)(?:,? and ([A-Z][a-z]+))?\s*-\s+\S")
+BIRTHDAY_RE = re.compile(r"^([A-Z][a-z]+)(?:'s)?\s+birthday\b", re.I)
+LEAD_RE = re.compile(r"^([A-Z][a-z]+)\b")
+
+
+def names_in(title):
+    """(names the title is certain about, a leading first name to check
+    against the people the ship knows). "Adelaide- Ballet/Tap" is certain
+    of Adelaide; "Milo Birthday" of Milo; "Milo Fencing Lesson" only
+    says Milo if the ship already has a Milo."""
+    t = str(title or '').strip()
+    m = DASH_RE.match(t)
+    if m:
+        return [n for n in m.groups() if n], None
+    m = BIRTHDAY_RE.match(t)
+    if m:
+        return [m.group(1)], None
+    m = LEAD_RE.match(t)
+    return [], (m.group(1) if m else None)
+
+
+def plan_participants(state):
+    """People the titles of activities and situations name, the person
+    bodies to create for the ones the ship lacks, and the participants rows
+    to write on each titled body."""
+    people = [b for b in state.get('bodies', []) if b.get('kind') == 'person']
+    titled = [b for b in state.get('bodies', []) if b.get('kind') in ('activity', 'situation')]
+    known = {}
+    for b in people:
+        for word in [b.get('name', '')] + list(b.get('aliases') or []):
+            k = analyze.person_key(word) - analyze.ROLE_WORDS
+            if len(k) == 1:
+                known.setdefault(next(iter(k)), b['id'])
+            elif k:
+                first = [w for w in re.split(r'[^a-z0-9]+', str(word).lower()) if w and w not in analyze.ROLE_WORDS]
+                if first:
+                    known.setdefault(first[0], b['id'])
+    certain = {}
+    for b in titled:
+        sure, lead = names_in(b.get('name'))
+        for n in sure:
+            certain.setdefault(n.lower(), n)
+    creates = []
+    for low, name in sorted(certain.items()):
+        if low not in known:
+            bid = 'person/' + analyze.slug(name)
+            creates.append({'id': bid, 'name': name})
+            known[low] = bid
+    rows = []
+    unsure = set()
+    for b in titled:
+        sure, lead = names_in(b.get('name'))
+        who = [known[n.lower()] for n in sure if n.lower() in known]
+        if not sure and lead:
+            if lead.lower() in known:
+                who = [known[lead.lower()]]
+            else:
+                unsure.add(lead)
+        have = {p.get('ref') for p in (value_of(b.get('attrs') or {}, 'participants') or []) if isinstance(p, dict)}
+        for pid in who:
+            if pid not in have:
+                rows.append({'subject': b['id'], 'attr': 'participants', 'value': {'ref': pid}, 'at': b.get('created', '2026-01-01T00:00:00Z'),
+                             'conf': 85, 'source': {'kind': 'reconcile', 'id': 'title/' + b['id']}})
+    return {'creates': creates, 'rows': rows, 'unsure': sorted(unsure - {c['name'] for c in creates})}
+
+
+def apply_participants(ship, plan):
+    bodies, rows = list(plan['creates']), list(plan['rows'])
+    while bodies or rows:
+        code, d = ship.call('POST', '/observe', {'bodies': bodies[:50], 'observations': rows[:200]})
+        bodies, rows = bodies[50:], rows[200:]
+        if code != 200:
+            print('observe refused', code, str(d)[:200], file=sys.stderr)
+            return False
+        for r in (d or {}).get('observations', []):
+            if not r.get('ok'):
+                print('row refused:', r.get('error'), file=sys.stderr)
+    return True
+
+
 # ==  the schema
 
 def ensure_activity_kind(ship, dry):
@@ -558,6 +646,15 @@ def run(argv=None):
             raise SystemExit('--apply is a real run')
         apply_merges(ship)
         return 0
+    part = plan_participants(state)
+    for c in part['creates']:
+        print('create %s (%s), named by titles' % (c['id'], c['name']))
+    print('%d person(s) to create, %d participants row(s) to write; leading words not known as people: %s'
+          % (len(part['creates']), len(part['rows']), ', '.join(part['unsure']) or 'none'))
+    if not args.dry_run and (part['creates'] or part['rows']):
+        if not apply_participants(ship, part):
+            return 1
+        state = ship.state()
     proposals = plan_people(state)
     for p in proposals:
         print('merge %s into %s: %s' % (p['from'], p['into'], p['why']))
