@@ -31,7 +31,6 @@ import analyze  # noqa: E402
 #  the analyst, set from the config at the start of a run; None means the grammar only
 MODEL = None
 CONTEXT = None
-CONFIG = {}
 #  how many earlier messages of a chat the model sees, as context, with each new one
 RECENT = 4
 
@@ -309,7 +308,7 @@ def context_for(ship):
     bodies this run creates."""
     global CONTEXT
     if CONTEXT is None:
-        CONTEXT = analyze.context_from_state(ship.state(), SOURCE, sensitive_write=bool((CONFIG.get('orrery') or {}).get('sensitive_write')))
+        CONTEXT = analyze.context_from_state(ship.state(), SOURCE)
     return CONTEXT
 
 
@@ -502,8 +501,8 @@ def run(argv=None):
     args = ap.parse_args(argv)
     with open(args.config) as f:
         cfg = json.load(f)
-    global MODEL, CONTEXT, CONFIG
-    MODEL, CONTEXT, CONFIG = None, None, cfg
+    global MODEL, CONTEXT
+    MODEL, CONTEXT = None, None
     mc = cfg.get('model')
     if mc and mc.get('enabled', True):
         MODEL = analyze.Model(mc.get('url', analyze.DEFAULT_URL), mc.get('name'), int(mc.get('timeout', 180)))
