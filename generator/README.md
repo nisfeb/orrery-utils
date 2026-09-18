@@ -1,0 +1,61 @@
+# generator: the frontier model proposes actions
+
+The analyst orrery's spec calls the larger model. It reads the state view and the recent decisions with a scoped key, hands them to a frontier model with `../common/generator-prompt.md`, validates every proposal, and files what survives with `POST /act`. The owner approves or dismisses on the page; the executors deliver. It writes no facts.
+
+Standard library only. One file, `run.py`.
+
+## What the model is given
+
+One prompt, built from the ship each run:
+
+- the time now, the owner's body and timezone, and the limit on proposals;
+- the action kinds the schema lists and the payload shape of each (the schema's `payloads` block: which keys are required and what they mean);
+- every body that matters: situations with their phase read off their times (closed, cancelled and over ones left out), activities with `last` and `next`, people with status and location, things, places, orgs;
+- the open actions, so it does not duplicate one;
+- the recent decisions (done, dismissed, failed), so it does not propose them again. A dismissal is the owner saying no.
+
+`--no-model` prints that prompt and stops; `--show-prompt` prints it before asking. The state is read as the key sees it, so a key without `sensitive: write` never puts `health` or `income` in front of a hosted model.
+
+## What is kept of the answer
+
+The model answers one JSON object with `actions` and `notes`. Each action is checked: the kind is one the schema lists; the title is not already open or decided (by its words, not its spelling); every body in `about` exists; the payload carries every key the schema marks required; `due` parses. At most `max_actions` are filed, the rest and the notes are printed. The model's one-sentence `why` rides in the payload for the owner to read on the page.
+
+## Configuration
+
+```json
+{
+  "orrery": {"url": "https://your-ship.example", "token_env": "ORRERY_TOKEN"},
+  "model": {"provider": "anthropic", "name": "claude-sonnet-5", "key_env": "ANTHROPIC_API_KEY", "timeout": 180},
+  "max_actions": 5,
+  "timezone": "America/New_York"
+}
+```
+
+`provider` is `anthropic` (the Messages API, key in the environment) or `openai` (any OpenAI-compatible chat endpoint, `url` and `name` as in the readers). `timezone` is a fallback; `person/me.timezone` on the ship wins.
+
+The key: read-only, every kind, the action kinds it may propose.
+
+```bash
+curl -s -b jar -H 'content-type: application/json' -X POST $SHIP/apps/orrery/api/clients -d '{
+  "name": "action generator", "by": "generator",
+  "scope": {"kinds": ["person", "place", "thing", "org", "situation", "activity", "note"], "actions": ["task", "note", "message", "home", "calendar"], "write": false}
+}'
+```
+
+## Running it
+
+```bash
+cd generator && python3 -m unittest                       # the prompt and the validation, no network
+ORRERY_TOKEN=... python3 run.py --config config.json --no-model      # the prompt it would send
+ORRERY_TOKEN=... ANTHROPIC_API_KEY=... python3 run.py --config config.json --dry-run   # ask, print, file nothing
+ORRERY_TOKEN=... ANTHROPIC_API_KEY=... python3 run.py --config config.json             # one pass
+ORRERY_TOKEN=... ANTHROPIC_API_KEY=... python3 run.py --config config.json --loop 3600 # hourly
+```
+
+## The trial
+
+For the trial the ship's policy has `auto` set to `[]`, so every proposal waits in the inbox and the owner sees the model's judgment before trusting it; the executors (`telegram/bot.py --loop`, `home-assistant/client.py --loop 60`) must be running for approved messages and home actions to happen. Watch the inbox, the `why` on each card, and the printed notes; when the proposals are good, put `task` and `note` back on `auto`.
+
+## What stays here
+
+The prompt and the model's answer. The ship gets the actions that passed validation, nothing else.
