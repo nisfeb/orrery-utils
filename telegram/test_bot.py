@@ -189,6 +189,22 @@ class WithModel(unittest.TestCase):
             {'subject': 'person/sarah', 'attr': 'status', 'value': 'strep positive', 'message': 'telegram/-100200/50'}])
         self.assertEqual([(o['attr'], o['value']) for o in facts.observations], [('health', 'strep positive')])
 
+    def test_new_names_for_a_body_the_ship_has_are_kept_when_the_message_uses_them(self):
+        class Neighbors(self.KnowingShip):
+            def state(self):
+                s = super().state()
+                s['bodies'].append({'id': 'place/neighbors', 'name': 'the neighbors'})
+                return s
+        src = 'telegram/-100200/50'
+        answer = {'bodies': [{'id': 'place/neighbors', 'aliases': ['next door', 'the green house']}],
+                  'observations': [{'subject': 'person/sarah', 'attr': 'location', 'value': {'ref': 'place/neighbors'}, 'message': src}]}
+        bot.MODEL = bot.analyze.FakeModel(json.dumps(answer))
+        msg = {'message_id': 50, 'date': 1789660800, 'chat': {'id': -100200}, 'from': {'id': 2002}, 'text': "I'm next door"}
+        facts = bot.handle(msg, load('config.json'), Neighbors())
+        self.assertEqual(facts.bodies, [{'id': 'place/neighbors', 'aliases': ['next door']}])
+        self.assertEqual([(o['subject'], o['value']) for o in facts.observations], [('person/sarah', {'ref': 'place/neighbors'})])
+        self.assertIn('next door', [b for b in bot.CONTEXT['bodies'] if b['id'] == 'place/neighbors'][0]['aliases'])
+
     def test_a_value_other_than_a_status_is_in_the_words(self):
         src = 'telegram/-100200/50'
         facts = self.answer('back home, the car is at the shop', [

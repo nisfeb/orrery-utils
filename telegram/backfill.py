@@ -147,9 +147,8 @@ def facts_for(window, chat_id, context, earlier=()):
     got = bot.grounded(analyze.analyze(MODEL, msgs, context), msgs, context)
     facts.notes.extend(got['notes'])
     bodies, observations, actions = analyze.to_batch(got, SOURCE)
-    for b in bodies:
-        facts.bodies.append(b)
-        context['bodies'].append({'id': b['id'], 'name': b['name'], 'aliases': list(b.get('aliases', ()))})
+    facts.bodies.extend(bodies)
+    analyze.remember(context, bodies)
     facts.observations.extend(observations)
     facts.actions.extend(actions)
     return facts

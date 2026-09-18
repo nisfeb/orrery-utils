@@ -445,10 +445,22 @@ def grounded(got, window, ctx):
     got['observations'] = keep
     used = {o['subject'] for o in keep} | {o['value']['ref'] for o in keep if isinstance(o.get('value'), dict)}
     used |= {x for a in got['actions'] for x in a.get('about', [])}
+    known = {b['id'] for b in ctx.get('bodies', [])}
+    said = words(' '.join(str(m.get('text', '')) for m in window if not m.get('context')))
+    kept = []
     for b in got['bodies']:
-        if b['id'] not in used:
+        if b['id'] in known:
+            #  new names for a body the ship has: only words the messages use
+            aliases = [a for a in b.get('aliases', []) if words(a).strip() and words(a) in said]
+            if aliases:
+                kept.append(dict(b, aliases=aliases))
+            else:
+                got['notes'].append('dropped new names for %s: not in the message' % b['id'])
+        elif b['id'] in used:
+            kept.append(b)
+        else:
             got['notes'].append('dropped body %s: no fact is about it' % b['id'])
-    got['bodies'] = [b for b in got['bodies'] if b['id'] in used]
+    got['bodies'] = kept
     return got
 
 
@@ -467,9 +479,8 @@ def classify_with_model(msg, sender_body, src, at, facts, ship, recent=()):
     got = grounded(analyze.analyze(MODEL, window, ctx), window, ctx)
     facts.notes.extend(got['notes'])
     bodies, observations, actions = analyze.to_batch(got, SOURCE)
-    for b in bodies:
-        facts.bodies.append(b)
-        ctx['bodies'].append({'id': b['id'], 'name': b['name'], 'aliases': list(b.get('aliases', ()))})
+    facts.bodies.extend(bodies)
+    analyze.remember(ctx, bodies)
     facts.observations.extend(observations)
     facts.actions.extend(actions)
     return None

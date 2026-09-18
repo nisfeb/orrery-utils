@@ -59,10 +59,10 @@ class Validation(unittest.TestCase):
 
     def test_a_known_body_learns_new_aliases(self):
         context = {'bodies': [{'id': 'place/neighbors', 'name': 'the neighbors', 'aliases': ['next door']},
-                              {'id': 'person/rose', 'name': 'Rose', 'aliases': []}], 'attrs': {}, 'me': 'person/me', 'channel': 'chat', 'action_kinds': ['task']}
+                              {'id': 'person/theo', 'name': 'Theo', 'aliases': []}], 'attrs': {}, 'me': 'person/me', 'channel': 'chat', 'action_kinds': ['task']}
         answer = {'bodies': [{'id': 'place/neighbors', 'name': 'the neighbors', 'aliases': ['next door', 'the Hendersons']}],
-                  'observations': [{'subject': 'person/rose', 'attr': 'location', 'value': {'ref': 'place/neighbors'}, 'message': 'm1'}]}
-        facts = analyze.validate(answer, [{'id': 'm1', 'at': '2026-09-18T12:00:00Z', 'who': 'person/me', 'text': "Rose is at the Hendersons'"}], context)
+                  'observations': [{'subject': 'person/theo', 'attr': 'location', 'value': {'ref': 'place/neighbors'}, 'message': 'm1'}]}
+        facts = analyze.validate(answer, [{'id': 'm1', 'at': '2026-09-18T12:00:00Z', 'who': 'person/me', 'text': "Theo is at the Hendersons'"}], context)
         self.assertEqual(facts['bodies'], [{'id': 'place/neighbors', 'aliases': ['the Hendersons']}])
         self.assertEqual(facts['observations'][0]['value'], {'ref': 'place/neighbors'})
 
@@ -341,6 +341,15 @@ class ModelDown(unittest.TestCase):
         filtered, body = notes('content_filter')
         self.assertFalse(analyze.model_down(filtered), filtered)
         self.assertNotIn('reasoning', body)
+
+
+class Remember(unittest.TestCase):
+    def test_new_bodies_join_and_new_names_fold_into_the_body(self):
+        context = {'bodies': [{'id': 'place/neighbors', 'name': 'the neighbors', 'aliases': []}]}
+        analyze.remember(context, [{'id': 'place/neighbors', 'aliases': ['next door']},
+                                   {'id': 'person/pat', 'name': 'Pat'}])
+        self.assertEqual(context['bodies'], [{'id': 'place/neighbors', 'name': 'the neighbors', 'aliases': ['next door']},
+                                             {'id': 'person/pat', 'name': 'Pat', 'aliases': []}])
 
 
 class LocalTime(unittest.TestCase):
