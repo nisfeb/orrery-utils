@@ -428,6 +428,65 @@ class Decisions(unittest.TestCase):
         self.assertEqual(analyze.gate(analyze.FakeDecider({}), window, {}), 1.0)
 
 
+class Picks(unittest.TestCase):
+    """Bodies ranked for the decision model, the relevance pick, and the
+    status check, on a fake decider."""
+
+    CTX = {'me': 'person/me', 'bodies': [
+        {'id': 'thing/subaru', 'name': 'the Subaru', 'aliases': ['the car']},
+        {'id': 'situation/2026-09-16-breakdown', 'name': 'The breakdown', 'aliases': []},
+        {'id': 'person/sarah', 'name': 'Sarah', 'aliases': ['wife']},
+        {'id': 'person/me', 'name': 'me', 'aliases': []},
+        {'id': 'activity/ballet', 'name': 'Ballet', 'aliases': []}]}
+    WINDOW = [{'id': 'telegram/1/1', 'at': '2026-09-18T12:00:00Z', 'text': 'sarah is on jury duty', 'who': 'person/me'}]
+
+    def test_rank_bodies(self):
+        ids = [b['id'] for b in analyze.rank_bodies(self.CTX['bodies'], self.WINDOW)]
+        self.assertEqual(ids, ['person/sarah', 'person/me', 'activity/ballet', 'situation/2026-09-16-breakdown', 'thing/subaru'])
+        self.assertEqual(analyze.gate_state(self.WINDOW, self.CTX)['known_bodies'][0], 'person/sarah | Sarah | wife')
+
+    def test_relevance_pick_and_chosen(self):
+        fake = analyze.FakeDecider({'b0': {'type': 'noul', 'noul': 0.93}, 'b1': {'type': 'noul', 'noul': 0.04}, 'b2': {'type': 'noul', 'noul': 0.02}, 'b3': {'type': 'noul', 'noul': 0.01}, 'b4': {'type': 'noul', 'noul': 0.7}})
+        picked = analyze.relevance_pick(fake, self.WINDOW, self.CTX)
+        self.assertFalse(picked['failed'])
+        self.assertEqual(picked['scores']['person/sarah'], 0.93)
+        self.assertEqual(len(fake.asked), 1)
+        self.assertIn('Is the new message about person/sarah (Sarah, wife)?', fake.asked[0][1]['b0']['instructions'])
+        self.assertEqual(len(fake.asked[0][0]['known_bodies']), 5)
+        shown = [b['id'] for b in analyze.chosen(self.CTX, self.WINDOW, picked, 0.5, 'person/me')]
+        self.assertEqual(shown, ['person/sarah', 'person/me', 'thing/subaru'])
+
+        class Down:
+            def ask(self, s, q):
+                raise RuntimeError('model unreachable')
+        failed = analyze.relevance_pick(Down(), self.WINDOW, self.CTX)
+        self.assertTrue(failed['failed'])
+        self.assertEqual(len(analyze.chosen(self.CTX, self.WINDOW, failed, 0.5, 'person/me')), 5)
+
+    def test_prompt_lists_only_the_shown(self):
+        text = analyze.prompt(self.WINDOW, dict(self.CTX, channel='chat'), shown=self.CTX['bodies'][2:3])
+        self.assertIn('person/sarah | Sarah | wife', text)
+        self.assertNotIn('thing/subaru', text)
+
+    def test_status_check(self):
+        obs = [{'subject': 'person/sarah', 'attr': 'status', 'value': 'on jury duty'},
+               {'subject': 'person/sarah', 'attr': 'status', 'value': 'want to scream'},
+               {'subject': 'person/me', 'attr': 'status', 'value': 'at the dentist tomorrow'},
+               {'subject': 'thing/subaru', 'attr': 'status', 'value': 'in the shop'},
+               {'subject': 'person/sarah', 'attr': 'location', 'value': 'court'}]
+        fake = analyze.FakeDecider({'status_0': {'type': 'choice', 'choice': 'circumstance', 'probabilities': {'circumstance': 0.99}},
+                                    'status_1': {'type': 'choice', 'choice': 'feeling', 'probabilities': {'feeling': 0.97}},
+                                    'status_2': {'type': 'choice', 'choice': 'neither', 'probabilities': {'neither': 0.55}}})
+        kept, notes = analyze.status_check(fake, self.WINDOW, obs)
+        self.assertEqual([o['value'] for o in kept], ['on jury duty', 'at the dentist tomorrow', 'in the shop', 'court'])
+        self.assertIn('status "want to scream": 0.97 feeling, dropped', notes)
+        self.assertIn('status "at the dentist tomorrow": uncertain, kept', notes)
+        st, q = fake.asked[0]
+        self.assertEqual([p['n'] for p in st['proposals']], [0, 1, 2])
+        self.assertIn('The proposal is n=1: "want to scream"', q['status_1']['instructions'])
+        self.assertEqual(analyze.status_check(fake, self.WINDOW, [obs[3]]), ([obs[3]], []))
+
+
 if __name__ == '__main__':
     unittest.main()
 

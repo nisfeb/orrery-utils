@@ -151,6 +151,29 @@ class WithModel(unittest.TestCase):
         finally:
             bot.DECIDER = None
 
+    def test_jev_picks_the_bodies_and_checks_the_status(self):
+        bot.MODEL = bot.analyze.FakeModel(json.dumps({'bodies': [], 'observations': [
+            {'subject': 'person/me', 'attr': 'status', 'value': 'home with the car at the shop', 'conf': 80, 'message': 'telegram/1001/13'},
+            {'subject': 'person/me', 'attr': 'status', 'value': 'fed up', 'conf': 60, 'message': 'telegram/1001/13'}], 'actions': []}))
+        answers = {'worth_reading': {'type': 'noul', 'noul': 0.9},
+                   #  ranked: place/home first (its name is in the text), then person/me, then person/sarah
+                   'b0': {'type': 'noul', 'noul': 0.05}, 'b1': {'type': 'noul', 'noul': 0.9}, 'b2': {'type': 'noul', 'noul': 0.9},
+                   'status_0': {'type': 'choice', 'choice': 'circumstance', 'probabilities': {'circumstance': 0.98}},
+                   'status_1': {'type': 'choice', 'choice': 'feeling', 'probabilities': {'feeling': 0.95}}}
+        bot.DECIDER = bot.analyze.FakeDecider(answers)
+        bot.RELEVANCE, bot.KEEP = True, 0.5
+        try:
+            facts = outcomes(load('config.json'), self.KnowingShip())['508']
+            self.assertEqual([o['value'] for o in facts['observations']], ['home with the car at the shop'])
+            asked = bot.MODEL.asked[0]
+            self.assertNotIn('place/home |', asked)
+            self.assertIn('person/me |', asked)
+            self.assertIn('person/sarah |', asked)
+            kinds = [sorted(q)[0] for _, q in bot.DECIDER.asked]
+            self.assertEqual(kinds, ['worth_reading', 'b0', 'status_0'])
+        finally:
+            bot.DECIDER, bot.RELEVANCE = None, False
+
     def test_commands_never_reach_the_model(self):
         outcomes(load('config.json'), self.KnowingShip())
         self.assertEqual(len(bot.MODEL.asked), 1)
