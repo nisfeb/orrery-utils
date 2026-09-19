@@ -241,6 +241,104 @@ class Model:
         print('# model usage: ' + ', '.join(bits), file=sys.stderr)
 
 
+DECISIONS_URL = 'https://openrouter.ai/api/alpha/decisions'
+
+
+class Decider:
+    """A typed decision from a System One model (TypeSafe's Jev) through
+    OpenRouter's decisions route: the state is any JSON, the questions are
+    typed (noul: a probability of yes; choice: one of a fixed set with a
+    probability each; score: a degree), and the answer is typed too. One
+    pass, a few hundred milliseconds, output free, so it stands in front of
+    the analyst and answers what needs no prose."""
+
+    def __init__(self, api_key, model='typesafe/jev-1.13', url=DECISIONS_URL, provider=None, timeout=30):
+        self.api_key, self.model, self.url, self.provider, self.timeout = api_key, model, url, provider, timeout
+        self.last_usage = None
+
+    @classmethod
+    def from_config(cls, cfg):
+        """The "decide" block: model, url, timeout, api_key or api_key_env;
+        the OpenRouter key and provider rule of the "model" block fill in
+        when it lacks them. None without a block, or with enabled false."""
+        dc = cfg.get('decide')
+        if not isinstance(dc, dict) or dc.get('enabled') is False:
+            return None
+        mc = cfg.get('model') or {}
+        key = secret(dc, 'api_key', 'OPENROUTER_API_KEY')
+        if not key and 'openrouter' in str(mc.get('url', '')):
+            key = secret(mc, 'api_key', 'OPENROUTER_API_KEY')
+        if not key:
+            raise SystemExit('no key for the decision model: put it in decide.api_key, or set the variable decide.api_key_env names')
+        return cls(key, dc.get('model', 'typesafe/jev-1.13'), dc.get('url', DECISIONS_URL),
+                   dc.get('provider', mc.get('provider')), int(dc.get('timeout', 30)))
+
+    def body(self, state, questions):
+        body = {'model': self.model, 'state': state, 'questions': questions}
+        if self.provider:
+            body['provider'] = self.provider
+        return body
+
+    def ask(self, state, questions):
+        """The answers, by question key."""
+        req = urllib.request.Request(self.url, data=json.dumps(self.body(state, questions)).encode(), method='POST')
+        req.add_header('content-type', 'application/json')
+        req.add_header('Authorization', 'Bearer ' + self.api_key)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                d = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            raise RuntimeError('decision model answered %s: %s' % (e.code, e.read().decode(errors='replace')[:300]))
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            raise RuntimeError('decision model unreachable at %s: %s' % (self.url, e))
+        u = d.get('usage') if isinstance(d, dict) else None
+        self.last_usage = u if isinstance(u, dict) else None
+        if self.last_usage:
+            print('# decision usage: input %s, cost $%.6f' % (u.get('input_tokens', '?'), float(u.get('cost') or 0)), file=sys.stderr)
+        answers = d.get('answers') if isinstance(d, dict) else None
+        if not isinstance(answers, dict):
+            raise RuntimeError('decision model answered without answers: ' + json.dumps(d)[:300])
+        return answers
+
+
+class FakeDecider:
+    """Answers canned decisions; tests and dry runs without a server."""
+
+    def __init__(self, answers):
+        self.answers, self.asked = answers, []
+
+    def ask(self, state, questions):
+        self.asked.append((state, questions))
+        return self.answers
+
+
+GATE_QUESTION = {'worth_reading': {
+    'type': 'noul',
+    'instructions': 'Does the new message state a fact worth recording about a person, thing, place, or a plan, that the analyst should read?',
+    'criteria': {'true': 'it says where someone is, what they are dealing with, what happened, or what will happen, to whom and when',
+                 'false': 'chatter, greetings, feelings, jokes, a question, or a request that carries no fact about anyone'},
+}}
+
+
+def gate(decider, window, context):
+    """The probability that the newest message in the window carries a fact
+    the analyst should read. The earlier messages ride along as context, and
+    the bodies the ship knows are listed by name so the model can tell a
+    person from a word."""
+    new = [m for m in window if not m.get('context')]
+    earlier = [m for m in window if m.get('context')]
+    people = ['%s | %s%s' % (b['id'], b.get('name', ''), ' | ' + ', '.join(b['aliases']) if b.get('aliases') else '')
+              for b in (context.get('bodies') or [])[:80]]
+    state = {'message': new[-1].get('text', '') if new else '',
+             'from': (new[-1].get('who') or '') if new else '',
+             'earlier': [str(m.get('text') or '') for m in earlier],
+             'known_bodies': people,
+             'rule': 'a status is a circumstance, never a feeling; only facts about people, things, places and plans are recorded'}
+    ans = decider.ask(state, GATE_QUESTION)
+    a = ans.get('worth_reading') or {}
+    return float(a.get('noul', 1.0))
+
+
 class FakeModel:
     """Answers a canned string; tests and dry runs without a server."""
 
