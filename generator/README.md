@@ -1,5 +1,7 @@
 # generator: the frontier model proposes actions
 
+As of orrery 18 the ship runs this itself: the Generator card under Settings holds the model and the key, and a pass runs on every change through `/sys/iris/`. This util remains the bench (`bench.py`), the dry-run harness, and the way to run a pass from a computer when the ship has no key.
+
 The analyst orrery's spec calls the larger model. It reads the state view and the recent decisions with a scoped key, hands them to a frontier model with `../common/generator-prompt.md`, validates every proposal, and files what survives with `POST /act`. The owner approves or dismisses on the page; the executors deliver. It writes no facts.
 
 Standard library only. One file, `run.py`.
