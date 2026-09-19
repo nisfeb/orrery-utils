@@ -20,6 +20,10 @@ A bot sees what is sent to it: private chats with it, and groups it is a member 
 
 A command the bot cannot apply (an unknown name, a missing argument, a refusal from the ship) gets a one-line reply in the same chat saying why. Set `reply_errors` to `false` to keep the bot silent.
 
+## The gate
+
+A `decide` block puts a decision model in front of the analyst. TypeSafe's Jev, reached through OpenRouter's decisions route with the same key as the `model` block (and its `provider` rule, so `{"zdr": true}` holds), answers one typed question per free-text message: the probability that it carries a fact worth recording, with the chat's last messages and the ship's known bodies as state. Below `threshold` (0.3 unless set) the analyst is not asked and the note says so; a gate that cannot answer lets everything through. It costs about two cents per thousand messages and answers in under half a second, so the small model runs only on messages that say something. `gate_check.py --config config.json export.json` shows what it would do over a Telegram Desktop export, one line per message, without writing anything.
+
 ## Delivery
 
 The assistant proposes a message:

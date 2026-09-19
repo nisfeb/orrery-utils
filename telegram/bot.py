@@ -32,6 +32,11 @@ import analyze  # noqa: E402
 #  the analyst, set from the config at the start of a run; None means the grammar only
 MODEL = None
 CONTEXT = None
+#  the gate: a decision model in front of the analyst says whether a
+#  message carries a fact at all; below the threshold the analyst is not
+#  asked. Conservative on purpose: it skips only what it is sure of.
+DECIDER = None
+GATE_THRESHOLD = 0.3
 #  how many earlier messages of a chat the model sees, as context, with each new one
 RECENT = 4
 
@@ -476,6 +481,17 @@ def classify_with_model(msg, sender_body, src, at, facts, ship, recent=()):
         return None
     ctx = context_for(ship)
     window = [dict(m, context=True) for m in recent] + [{'id': src['id'], 'at': iso(at), 'who': sender_body, 'text': str(msg.get('text') or '')}]
+    if DECIDER is not None:
+        try:
+            p = analyze.gate(DECIDER, window, ctx)
+        except RuntimeError as e:
+            #  a gate that cannot answer lets everything through
+            facts.notes.append('gate unavailable, analyst asked: ' + str(e)[:120])
+            p = 1.0
+        if p < GATE_THRESHOLD:
+            facts.notes.append('gate: %.2f that this carries a fact, below %.2f: not read' % (p, GATE_THRESHOLD))
+            return None
+        facts.notes.append('gate: %.2f, read' % p)
     got = grounded(analyze.analyze(MODEL, window, ctx), window, ctx)
     facts.notes.extend(got['notes'])
     bodies, observations, actions = analyze.to_batch(got, SOURCE)
@@ -673,7 +689,7 @@ def run(argv=None):
     ap.add_argument('--loop', action='store_true', help='long poll for ever')
     args = ap.parse_args(argv)
     cfg = analyze.load_config(args.config)
-    global MODEL, CONTEXT
+    global MODEL, CONTEXT, DECIDER, GATE_THRESHOLD
     MODEL, CONTEXT = None, None
     mc = cfg.get('model')
     if mc and mc.get('enabled', True):
@@ -682,6 +698,10 @@ def run(argv=None):
             print('# model:', MODEL.model_name(), 'at', MODEL.url)
         except RuntimeError as e:
             raise SystemExit(str(e) + ' (start the server, or remove the model block)')
+    DECIDER = analyze.Decider.from_config(cfg) if MODEL is not None else None
+    if DECIDER is not None:
+        GATE_THRESHOLD = float((cfg.get('decide') or {}).get('threshold', GATE_THRESHOLD))
+        print('# gate:', DECIDER.model, 'below', GATE_THRESHOLD, 'the analyst is not asked')
     reader = None
     if not args.updates:
         btok = analyze.secret(cfg['telegram'], 'token', 'TELEGRAM_TOKEN')

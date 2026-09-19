@@ -133,6 +133,24 @@ class WithModel(unittest.TestCase):
         self.assertNotIn('/status waiting', bot.MODEL.asked[1])
         self.assertEqual([m['id'] for m in state['recent']['1001']], ['telegram/1001/1', 'telegram/1001/3'])
 
+    def test_the_gate_keeps_chatter_from_the_model(self):
+        bot.DECIDER = bot.analyze.FakeDecider({'worth_reading': {'type': 'noul', 'noul': 0.05}})
+        try:
+            note = outcomes(load('config.json'), self.KnowingShip())['508']
+            self.assertEqual(bot.MODEL.asked, [])
+            #  nothing written: the outcome is the note itself
+            self.assertTrue(note.startswith('gate: 0.05') and 'not read' in note, note)
+            state, questions = bot.DECIDER.asked[0]
+            self.assertIn('worth_reading', questions)
+            self.assertIn('home now, car is at the shop', state['message'])
+            self.assertIn('person/sarah | Sarah | wife', state['known_bodies'])
+            bot.DECIDER = bot.analyze.FakeDecider({'worth_reading': {'type': 'noul', 'noul': 0.8}})
+            facts = outcomes(load('config.json'), self.KnowingShip())['508']
+            self.assertEqual(len(bot.MODEL.asked), 1)
+            self.assertEqual(facts['observations'][0]['attr'], 'location')
+        finally:
+            bot.DECIDER = None
+
     def test_commands_never_reach_the_model(self):
         outcomes(load('config.json'), self.KnowingShip())
         self.assertEqual(len(bot.MODEL.asked), 1)

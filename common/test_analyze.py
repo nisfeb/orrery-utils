@@ -404,6 +404,30 @@ class Budget(unittest.TestCase):
         self.assertEqual(analyze.Model.from_config({'url': 'http://x', 'max_tokens': 32000}).max_tokens, 32000)
 
 
+class Decisions(unittest.TestCase):
+    def test_the_decider_takes_the_router_key_and_rule_from_the_model_block(self):
+        d = analyze.Decider.from_config({'model': {'url': 'https://openrouter.ai/api/v1', 'api_key': 'k', 'provider': {'zdr': True}}, 'decide': {'threshold': 0.3}})
+        self.assertEqual((d.api_key, d.model, d.url, d.provider), ('k', 'typesafe/jev-1.13', analyze.DECISIONS_URL, {'zdr': True}))
+        body = d.body({'message': 'x'}, analyze.GATE_QUESTION)
+        self.assertEqual(body['model'], 'typesafe/jev-1.13')
+        self.assertEqual(body['provider'], {'zdr': True})
+        self.assertEqual(body['questions']['worth_reading']['type'], 'noul')
+        self.assertIsNone(analyze.Decider.from_config({'model': {'url': 'http://localhost:1234/v1'}}))
+        self.assertIsNone(analyze.Decider.from_config({'decide': {'enabled': False}}))
+        with self.assertRaises(SystemExit):
+            analyze.Decider.from_config({'model': {'url': 'http://localhost:1234/v1'}, 'decide': {}})
+
+    def test_the_gate_reads_the_newest_message_with_the_earlier_ones_as_context(self):
+        fake = analyze.FakeDecider({'worth_reading': {'type': 'noul', 'noul': 0.12}})
+        window = [{'text': 'jury duty tomorrow', 'context': True}, {'text': 'ugh', 'who': 'person/sarah'}]
+        p = analyze.gate(fake, window, {'bodies': [{'id': 'person/sarah', 'name': 'Sarah', 'aliases': ['wife']}]})
+        self.assertEqual(p, 0.12)
+        state = fake.asked[0][0]
+        self.assertEqual((state['message'], state['from'], state['earlier']), ('ugh', 'person/sarah', ['jury duty tomorrow']))
+        self.assertEqual(state['known_bodies'], ['person/sarah | Sarah | wife'])
+        self.assertEqual(analyze.gate(analyze.FakeDecider({}), window, {}), 1.0)
+
+
 if __name__ == '__main__':
     unittest.main()
 
