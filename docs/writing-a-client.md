@@ -77,6 +77,21 @@ As of orrery 22 the ship runs the action generator itself: after a change to the
 
 Every change a client makes moves the ship's beacon, and the on-ship generator wakes on the beacon: it settles for twenty seconds, builds the prompt, and asks the model if the prompt differs from the last one it sent, at most once per the owner's cooldown (an hour unless set) and at most the daily cap. So a client's write pattern is a cost pattern. Write in batches, one `observe` with many rows rather than a row per request, and let a sync pass finish before the next begins: a trickle of single writes spread over an hour is a pass an hour, a batch is one. A write that changes nothing the model sees (a repeat the ship answers `existing`, a sensitive attribute, a body outside the generator's view) wakes it and costs nothing, since the digest is unchanged. Never poke the generator's fiber and never write its documents (`generator.json`, `generator-last.json`); they are the owner's, through the page and the owner-only routes. Proposals the ship files are signed `generator` and look like any other action to a client: list them, mirror the approved tasks (rule 11), carry the owner's answers back (rule 12). `POST /generate` is the owner's run-now; a client has no reason to call it, and while a model call is in flight it waits for that call to end before answering.
 
+## 14. A reader proposes three kinds, and an executor takes one channel
+
+A reader that triages messages (mail, a Telegram chat, a Tlon DM in Talon) may propose actions of kind `task`, `calendar` and `message`, and no other: `note` and `home` are the generator's. It learns the shapes from the schema, not from this document: `schema.actions` is the list the ship allows and `schema.payloads[kind]` the shape of each, a line per key that starts `required` or `optional` and may end `one of a, b, c`. Put both in the prompt's context block the way `analyze.prompt` does, after the attribute notes:
+
+```
+Channel: chat
+Action kinds you may propose: task, calendar, message
+  calendar payload: {"title": "required", "starts": "required: ISO 8601 UTC", "ends": "optional: ISO 8601 UTC", "location": "optional"}
+  message payload: {"via": "required: one of telegram, mail, chat; the channel the conversation is on", "to": "required: the body id of the person, e.g. person/andrea", "text": "required: the message, short, in the owner's own voice"}
+```
+
+The `Channel:` line is what the model reads `via` off, so a reader names its own: `mail` for a mail, `chat` for a Tlon DM or channel, `telegram` for the bot. Then validate the way `analyze.validate` does, and drop with a note rather than send: a `required` key missing; a `one of` key holding a value not in the list (compare lower-cased); `to` naming a body the ship does not have (resolve it first, rule 2); a time not parseable as ISO 8601 (send it as UTC). A dropped action is a note in the reader's log, never a body or an observation.
+
+An executor is the other side. It reads `GET /actions?status=open`, takes only the kind it executes and, for a message, only the `via` it serves, and only when the status is `approved` (or `claimed` past its lease, which the ship decides). It claims first, `POST /actions/<id> {"status": "claimed", "by": "talon"}`, and the ship's answer says whether the claim held: `claimed by telegram` means another executor has it, so leave it. The lease is ten minutes. Then it does the work and reports, `{"status": "done", "note": "sent as a DM to ~sampel"}` or `{"status": "failed", "note": "person/andrea has no ship attribute"}`; a note on every report, because the owner reads them in the inbox. A claim needs the kind among the key's `actions`. The address for `to` is the person's own attribute from the state view: `email` for mail, `ship` for chat; never a guess from the body id.
+
 ## What reconcile does when a client gets it wrong
 
 `common/reconcile.py` is the owner's cleanup: `activities` folds occurrence situations into activities, `people` proposes merges for bodies that name one person, and `retire` closes situations that are over. It is a net, not a licence: a client that keeps re-creating bodies is undone by reconcile and undoes it back, every few minutes, and nobody wins.
