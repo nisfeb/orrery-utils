@@ -487,6 +487,39 @@ class Picks(unittest.TestCase):
         self.assertEqual(analyze.status_check(fake, self.WINDOW, [obs[3]]), ([obs[3]], []))
 
 
+class CalendarActions(unittest.TestCase):
+    """A message that fixes a plan in time may propose a calendar event,
+    held to the schema's payload shape; the reader's kinds come from the
+    schema, never message or home."""
+
+    STATE = {'me': 'person/me', 'bodies': [{'id': 'person/me', 'name': 'me', 'aliases': []}, {'id': 'person/sarah', 'name': 'Sarah', 'aliases': []}],
+             'schema': {'kinds': {'person': {'attrs': ['status']}}, 'actions': ['task', 'note', 'message', 'home', 'calendar'],
+                        'payloads': {'calendar': {'title': 'required', 'starts': 'required: ISO 8601 UTC', 'ends': 'optional: ISO 8601 UTC', 'location': 'optional'},
+                                     'message': {'via': 'required: telegram', 'to': 'required', 'text': 'required'}}}}
+
+    def test_kinds_and_shapes_come_from_the_schema(self):
+        ctx = analyze.context_from_state(self.STATE, 'chat')
+        self.assertEqual(ctx['action_kinds'], ['task', 'calendar'])
+        self.assertEqual(list(ctx['payloads']), ['calendar'])
+        self.assertEqual(analyze.context_from_state({'schema': {'kinds': {}}}, 'chat')['action_kinds'], ['task'])
+        text = analyze.prompt([{'id': 'm1', 'at': '2026-09-19T12:00:00Z', 'who': 'person/me', 'text': 'x'}], ctx)
+        self.assertIn('Action kinds you may propose: task, calendar', text)
+        self.assertIn('calendar payload: {"title": "required"', text)
+
+    def test_a_calendar_action_is_kept_with_its_payload_and_dropped_without_its_time(self):
+        ctx = analyze.context_from_state(self.STATE, 'chat')
+        msgs = [{'id': 'm1', 'at': '2026-09-19T12:00:00Z', 'who': 'person/me', 'text': 'dinner with sarah friday at 8'}]
+        answer = {'bodies': [], 'observations': [], 'actions': [
+            {'kind': 'calendar', 'title': 'Dinner with Sarah', 'about': ['person/sarah'], 'payload': {'title': 'Dinner with Sarah', 'starts': '2026-09-25T20:00:00-04:00', 'location': 'the usual place'}, 'message': 'm1'},
+            {'kind': 'calendar', 'title': 'Something sometime', 'payload': {'title': 'Something sometime'}, 'message': 'm1'},
+            {'kind': 'message', 'title': 'Tell Sarah', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': 'x'}, 'message': 'm1'}]}
+        got = analyze.validate(answer, msgs, ctx)
+        self.assertEqual([a['kind'] for a in got['actions']], ['calendar'])
+        self.assertEqual(got['actions'][0]['payload'], {'title': 'Dinner with Sarah', 'starts': '2026-09-26T00:00:00Z', 'location': 'the usual place'})
+        self.assertIn('dropped action Something sometime: payload lacks starts', got['notes'])
+        self.assertIn('dropped action: Tell Sarah', got['notes'])
+
+
 if __name__ == '__main__':
     unittest.main()
 
