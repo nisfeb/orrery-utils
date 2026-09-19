@@ -500,9 +500,22 @@ def closed_before(body, cutoff):
     return isinstance(when, str) and bool(when) and when < cutoff
 
 
-def context_from_state(state, channel, action_kinds=('task',)):
+#  the action kinds a reader may propose from a message: a task, and a
+#  calendar event when a message fixes a plan in time. Messages and home
+#  actions are the generator's and the executors', never read off a chat.
+READER_ACTIONS = ('task', 'calendar')
+
+
+def context_from_state(state, channel, action_kinds=None):
     """The context block from a state view: the bodies (id, name, aliases),
-    the schema's attribute names per kind, and person/me."""
+    the schema's attribute names per kind, the action kinds the key may
+    propose (READER_ACTIONS, as far as the schema lists them) with their
+    payload shapes, and person/me."""
+    schema = (state or {}).get('schema') or {}
+    if action_kinds is None:
+        listed = [str(k) for k in (schema.get('actions') or [])]
+        action_kinds = [k for k in READER_ACTIONS if k in listed] or ['task']
+    payloads = {k: v for k, v in (schema.get('payloads') or {}).items() if k in action_kinds and isinstance(v, dict)}
     bodies = []
     cutoff = (datetime.now(timezone.utc) - timedelta(days=CLOSED_DAYS)).strftime('%Y-%m-%dT%H:%M:%SZ')
     for b in (state or {}).get('bodies', []):
@@ -520,7 +533,7 @@ def context_from_state(state, channel, action_kinds=('task',)):
             if isinstance(spec.get('notes'), dict):
                 notes[kind] = {str(k): str(v) for k, v in spec['notes'].items() if isinstance(v, str)}
     return {'bodies': bodies[:MAX_BODIES_IN_CONTEXT], 'attrs': attrs, 'notes': notes, 'me': (state or {}).get('me', 'person/me'),
-            'channel': channel, 'action_kinds': list(action_kinds)}
+            'channel': channel, 'action_kinds': list(action_kinds), 'payloads': payloads}
 
 
 def local_time(at):
@@ -548,6 +561,8 @@ def prompt(messages, context, shown=None):
                 lines.append('  %s.%s: %s' % (kind, attr, text))
     if context.get('action_kinds'):
         lines.append('Action kinds you may propose: ' + ', '.join(context['action_kinds']))
+        for k, shape in (context.get('payloads') or {}).items():
+            lines.append('  %s payload: %s' % (k, json.dumps(shape)))
     listed = context.get('bodies', []) if shown is None else shown
     lines.append('Existing bodies (id | name | aliases):')
     for b in listed:
@@ -808,6 +823,19 @@ def validate(answer, messages, context):
         due = iso_or_none(a.get('due'))
         if due:
             row['due'] = due
+        #  a payload, held to the schema's shape for the kind: the required
+        #  keys present, and times as ISO 8601 UTC
+        payload = a.get('payload') if isinstance(a.get('payload'), dict) else {}
+        shape = (context.get('payloads') or {}).get(kind) or {}
+        for k, v in shape.items():
+            if isinstance(v, str) and 'ISO 8601' in v and payload.get(k):
+                payload[k] = iso_or_none(payload[k]) or payload[k]
+        missing = [k for k, v in shape.items() if isinstance(v, str) and v.startswith('required') and not payload.get(k)]
+        if missing:
+            notes.append('dropped action %s: payload lacks %s' % (title, ', '.join(missing)))
+            continue
+        if payload:
+            row['payload'] = payload
         actions.append(row)
     return {'bodies': bodies, 'observations': observations, 'actions': actions, 'notes': notes}
 
