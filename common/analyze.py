@@ -500,10 +500,17 @@ def closed_before(body, cutoff):
     return isinstance(when, str) and bool(when) and when < cutoff
 
 
-#  the action kinds a reader may propose from a message: a task, and a
-#  calendar event when a message fixes a plan in time. Messages and home
-#  actions are the generator's and the executors', never read off a chat.
-READER_ACTIONS = ('task', 'calendar')
+#  the action kinds a reader may propose from a message: a task, a calendar
+#  event when a message fixes a plan in time, and a message to send when the
+#  conversation calls for one. Home actions are the generator's.
+READER_ACTIONS = ('task', 'calendar', 'message')
+
+
+def one_of(shape_value):
+    """The values a payload key admits, read off its schema line
+    ("required: one of telegram, mail, chat"), or nothing when it is free."""
+    m = re.search(r'one of\s+(.+)$', str(shape_value or ''))
+    return [w for w in re.split(r'[,\s]+|\bor\b', m.group(1)) if w] if m else []
 
 
 def context_from_state(state, channel, action_kinds=None):
@@ -833,6 +840,22 @@ def validate(answer, messages, context):
         missing = [k for k, v in shape.items() if isinstance(v, str) and v.startswith('required') and not payload.get(k)]
         if missing:
             notes.append('dropped action %s: payload lacks %s' % (title, ', '.join(missing)))
+            continue
+        #  a key the schema fixes to a list ("one of telegram, mail, chat") holds
+        #  one of them, lower-cased; a recipient is a body the ship has
+        bad = None
+        for k, v in shape.items():
+            allowed = one_of(v)
+            if allowed and payload.get(k):
+                payload[k] = str(payload[k]).strip().lower()
+                if payload[k] not in allowed:
+                    bad = '%s is %s, not one of %s' % (k, payload[k], ', '.join(allowed))
+            if k == 'to' and 'body id' in str(v) and payload.get(k):
+                payload[k] = canon(str(payload[k]).strip().lower())
+                if payload[k] not in known:
+                    bad = 'to names a body that does not exist: ' + payload[k]
+        if bad:
+            notes.append('dropped action %s: %s' % (title, bad))
             continue
         if payload:
             row['payload'] = payload
