@@ -227,7 +227,8 @@ def build_parts(state, decided, now, tz, limit):
         lines.append('  %s | %s | about %s' % (a.get('kind'), a.get('title'), ', '.join(a.get('about') or [])))
     lines.append('Recent decisions (do not propose these again):')
     for a in decided[-RECENT:]:
-        lines.append('  %s | %s | %s' % (a.get('status'), a.get('kind'), a.get('title')))
+        note = ' '.join(str(a.get('note') or '').split())[:200]
+        lines.append('  %s | %s | %s%s' % (a.get('status'), a.get('kind'), a.get('title'), ' | ' + note if note else ''))
     parts.append('\n'.join(lines))
     parts.append('Now: %s, timezone %s. Answer with the JSON object.' % (now, tz or 'unknown'))
     return parts

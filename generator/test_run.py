@@ -31,7 +31,7 @@ STATE = {
                             'home': {'service': 'required', 'entity_id': 'required', 'data': 'optional'}}},
 }
 DECIDED = [{'kind': 'task', 'title': 'Pay Utility Co $142.50', 'status': 'done'},
-           {'kind': 'message', 'title': 'Tell Sarah the car is at the shop', 'status': 'dismissed'}]
+           {'kind': 'message', 'title': 'Tell Sarah the car is at the shop', 'status': 'dismissed', 'note': 'she already knows'}]
 
 
 class Prompt(unittest.TestCase):
@@ -49,7 +49,7 @@ class Prompt(unittest.TestCase):
         self.assertIn('location=place/johns-machine-shop', text)
         self.assertIn('Open actions', text)
         self.assertIn('task | Call the shop about the Subaru', text)
-        self.assertIn('dismissed | message | Tell Sarah the car is at the shop', text)
+        self.assertIn('dismissed | message | Tell Sarah the car is at the shop | she already knows', text)
         self.assertIn('timezone America/New_York', text)
 
 
