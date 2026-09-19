@@ -64,6 +64,7 @@ class Answers(unittest.TestCase):
             {'kind': 'email', 'title': 'Email the shop'},
             {'kind': 'task', 'title': 'Buy a new car', 'about': ['thing/tesla']},
             {'kind': 'home', 'title': 'Porch light on', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}},
+            {'kind': 'task', 'title': 'Go to Ballet', 'about': ['activity/ballet']},
         ], 'notes': ['the breakdown situation has no ended']}
         out, notes = run.validate(answer, STATE, DECIDED, 5)
         self.assertEqual([a['title'] for a in out], ['Ask the shop for a diagnosis estimate', 'Wish Sarah luck at jury duty', 'Porch light on'])
@@ -77,6 +78,7 @@ class Answers(unittest.TestCase):
         self.assertIn('kind email', joined)
         self.assertIn('thing/tesla', joined)
         self.assertIn('model note: the breakdown situation has no ended', joined)
+        self.assertIn('dropped as a todo for an event on the calendar: Go to Ballet (Ballet)', joined)
 
     def test_limit(self):
         answer = {'actions': [{'kind': 'task', 'title': 'Task %d' % i} for i in range(9)]}
@@ -131,6 +133,13 @@ class Answers(unittest.TestCase):
         self.assertEqual(run.model_from({'model': {'url': 'http://x', 'name': 'm', 'max_tokens': 3000}}).max_tokens, 3000)
         self.assertEqual(run.model_from({'model': {'api': 'anthropic', 'api_key': 'k'}}).max_tokens, 8000)
         self.assertEqual(run.analyze.Model.from_config({'url': 'http://x'}).max_tokens, 2000)
+
+    def test_restates(self):
+        self.assertTrue(run.restates('Go to Ballet', 'Ballet'))
+        self.assertTrue(run.restates('Attend the Nutcracker rehearsal', 'Nutcracker rehearsal'))
+        self.assertFalse(run.restates("Plan Magnus's birthday", 'Magnus Birthday'))
+        self.assertFalse(run.restates("Pack for the day at Grandma and Grandaddy's", "Grandma and Grandaddy's"))
+        self.assertFalse(run.restates('Ballet', ''))
 
     def test_same_title(self):
         self.assertTrue(run.same_title('Call the shop about the Subaru', 'call the shop about the subaru.'))
