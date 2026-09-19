@@ -277,6 +277,16 @@ def same_title(a, b):
     return ka == kb or (len(ka & kb) >= max(2, int(0.8 * min(len(ka), len(kb)))))
 
 
+#  a title that only says to go to an event: every word of the event's name,
+#  and nothing else but attendance words
+ATTEND = {'go', 'to', 'the', 'a', 'an', 'at', 'on', 'for', 'of', 'attend', 'be', 's', 'remember', 'show', 'up', 'dont', 'forget', 'today', 'tomorrow'}
+
+
+def restates(title, event):
+    kt, ke = set(norm(title)), set(norm(event))
+    return bool(ke) and ke <= kt and (kt - ke) <= ATTEND
+
+
 def validate(answer, state, decided, limit):
     notes = []
     schema = state.get('schema') or {}
@@ -284,6 +294,8 @@ def validate(answer, state, decided, limit):
     payloads = schema.get('payloads') or {}
     known = {b['id'] for b in state.get('bodies', []) if isinstance(b, dict)}
     taken = [a.get('title') for a in (state.get('actions') or [])] + [a.get('title') for a in decided]
+    #  an event the calendar holds needs no todo for attending it
+    events = [b.get('name') or '' for b in state.get('bodies', []) if isinstance(b, dict) and b.get('kind') in ('situation', 'activity')]
     out = []
     for a in (answer.get('actions') or [])[:limit * 2]:
         if not isinstance(a, dict):
@@ -295,6 +307,10 @@ def validate(answer, state, decided, limit):
             continue
         if any(same_title(title, t) for t in taken):
             notes.append('dropped as already open or decided: ' + title)
+            continue
+        restated = next((e for e in events if restates(title, e)), None)
+        if restated:
+            notes.append('dropped as a todo for an event on the calendar: %s (%s)' % (title, restated))
             continue
         about = [str(x).strip().lower() for x in (a.get('about') or [])]
         bad = [x for x in about if x not in known]
