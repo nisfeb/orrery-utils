@@ -320,23 +320,155 @@ GATE_QUESTION = {'worth_reading': {
 }}
 
 
+#  how many bodies go to the decision model at most: a guard, not a budget.
+#  Sending every body measured the same answer time as eighty, at about eight
+#  cents more per thousand messages, and a cut at eighty could drop the one
+#  person a message is about (Talon, 2026-09-19).
+MAX_KNOWN = 1000
+KIND_RANK = {'person': 1, 'activity': 2, 'place': 2, 'org': 2, 'situation': 3, 'thing': 4}
+
+
+def known_line(b):
+    return '%s | %s%s' % (b['id'], b.get('name', ''), ' | ' + ', '.join(b['aliases']) if b.get('aliases') else '')
+
+
+def named_in(b, texts):
+    """Whether a body's name or an alias appears in any of the texts."""
+    hay = ' '.join(str(t).lower() for t in texts)
+    for w in [b.get('name') or ''] + list(b.get('aliases') or []):
+        w = str(w).strip().lower()
+        if len(w) >= 3 and w in hay:
+            return True
+    return False
+
+
+def rank_bodies(bodies, window):
+    """The ship's bodies in the order a reader should meet them: those named
+    in the window first, then people, then activities, places and orgs, then
+    situations, then things. Where a list has to be cut, this decides what is
+    cut."""
+    texts = [m.get('text') or '' for m in window]
+    def key(b):
+        if named_in(b, texts):
+            return 0
+        return KIND_RANK.get(str(b['id']).split('/')[0], 5)
+    return sorted(bodies, key=key)
+
+
+def gate_state(window, context):
+    new = [m for m in window if not m.get('context')]
+    earlier = [m for m in window if m.get('context')]
+    ranked = rank_bodies(context.get('bodies') or [], window)[:MAX_KNOWN]
+    return {'message': new[-1].get('text', '') if new else '',
+            'from': (new[-1].get('who') or '') if new else '',
+            'earlier': [str(m.get('text') or '') for m in earlier],
+            'known_bodies': [known_line(b) for b in ranked],
+            'rule': 'a status is a circumstance, never a feeling; only facts about people, things, places and plans are recorded'}
+
+
 def gate(decider, window, context):
     """The probability that the newest message in the window carries a fact
     the analyst should read. The earlier messages ride along as context, and
-    the bodies the ship knows are listed by name so the model can tell a
-    person from a word."""
-    new = [m for m in window if not m.get('context')]
-    earlier = [m for m in window if m.get('context')]
-    people = ['%s | %s%s' % (b['id'], b.get('name', ''), ' | ' + ', '.join(b['aliases']) if b.get('aliases') else '')
-              for b in (context.get('bodies') or [])[:80]]
-    state = {'message': new[-1].get('text', '') if new else '',
-             'from': (new[-1].get('who') or '') if new else '',
-             'earlier': [str(m.get('text') or '') for m in earlier],
-             'known_bodies': people,
-             'rule': 'a status is a circumstance, never a feeling; only facts about people, things, places and plans are recorded'}
-    ans = decider.ask(state, GATE_QUESTION)
+    every body the ship knows is listed by name, ranked, so the model can
+    tell a person from a word."""
+    ans = decider.ask(gate_state(window, context), GATE_QUESTION)
     a = ans.get('worth_reading') or {}
     return float(a.get('noul', 1.0))
+
+
+#  ==  which bodies a message is about, asked of the decision model
+
+RELEVANCE_GROUP = 40
+
+
+def relevance_questions(group):
+    out = {}
+    for j, b in enumerate(group):
+        about = ', '.join(x for x in [b.get('name') or ''] + list(b.get('aliases') or []) if x) or b['id']
+        out['b%d' % j] = {'type': 'noul', 'instructions': 'Is the new message about %s (%s)?' % (b['id'], about),
+                          'criteria': {'true': 'the message names it or plainly refers to it', 'false': 'it does not'}}
+    return out
+
+
+def relevance_pick(decider, window, context, group=RELEVANCE_GROUP):
+    """Each body's score for being what the message is about: one noul
+    question per body, in groups, each call carrying the whole ranked list of
+    bodies. The list is what makes it work: without it the bodies a message
+    was plainly about scored with the noise, around 0.3; with it they scored
+    0.8 to 0.96 and the rest 0.06 or less (Talon, 173 bodies, 2026-09-19).
+    Answers {'scores': {id: p}, 'cost': usd, 'failed': bool, 'note': str}; a
+    failed call scores nothing, and the caller shows everything."""
+    st = gate_state(window, context)
+    st.pop('rule', None)
+    ranked = rank_bodies(context.get('bodies') or [], window)[:MAX_KNOWN]
+    scores, cost, calls = {}, 0.0, 0
+    for i in range(0, len(ranked), group):
+        g = ranked[i:i + group]
+        try:
+            ans = decider.ask(st, relevance_questions(g))
+        except RuntimeError as e:
+            return {'scores': {}, 'cost': cost, 'failed': True, 'note': 'body picks unavailable, the analyst sees the bodies in order: ' + str(e)[:160]}
+        calls += 1
+        cost += float((getattr(decider, 'last_usage', None) or {}).get('cost') or 0)
+        for j, b in enumerate(g):
+            a = ans.get('b%d' % j) or {}
+            scores[b['id']] = float(a.get('noul', 0.0))
+    return {'scores': scores, 'cost': cost, 'failed': False, 'note': 'body picks: %d call(s), $%.4f' % (calls, cost)}
+
+
+def chosen(context, window, picked, keep, sender):
+    """The bodies the analyst is shown: those scored at or above keep, and
+    always the sender and the owner, in ranked order. When the picks failed,
+    every body: a failed call never narrows the reader."""
+    ranked = rank_bodies(context.get('bodies') or [], window)
+    if picked.get('failed'):
+        return ranked
+    me = context.get('me', 'person/me')
+    return [b for b in ranked if picked['scores'].get(b['id'], 0.0) >= keep or b['id'] in (sender, me)]
+
+
+#  ==  rule 8 held by a model that cannot answer outside the set
+
+STATUS_SURE = 0.6
+STATUS_CRITERIA = {'circumstance': 'what the person is doing or dealing with right now, as an observer would put it: on jury duty, stranded waiting for a tow, travelling, sick, home with the kids',
+                   'feeling': 'an emotion, a mood, a quote or a wish: want to scream, exhausted, so happy, wishes it were friday',
+                   'neither': 'not a status at all: a plan, a location, an event, a thing'}
+
+
+def status_check(decider, window, observations):
+    """Each status the analyst proposes for a person is put to the decision
+    model: a circumstance, a feeling, or neither. Only circumstances are kept.
+    Each question names its own proposal: asked without it, the model cannot
+    tell which of several a question means and answers them all alike
+    (measured 2026-09-19: named, 1.0 circumstance, 1.0 feeling, 0.65 neither).
+    A decider that cannot answer keeps every row. Answers (kept, notes)."""
+    asked = [i for i, o in enumerate(observations) if o.get('attr') == 'status' and str(o.get('subject', '')).startswith('person/')]
+    if not asked:
+        return observations, []
+    new = [m for m in window if not m.get('context')]
+    st = {'message': new[-1].get('text', '') if new else '', 'from': (new[-1].get('who') or '') if new else '',
+          'proposals': [{'n': i, 'subject': observations[i]['subject'], 'value': str(observations[i].get('value'))} for i in asked],
+          'rule': 'status on a person is what they are doing or dealing with right now, in plain words; never a feeling, a quote or a wish'}
+    questions = {'status_%d' % i: {'type': 'choice', 'instructions': 'Is this proposed status for the person a circumstance or a feeling? The proposal is n=%d: "%s".' % (i, str(observations[i].get('value'))),
+                                   'criteria': STATUS_CRITERIA} for i in asked}
+    try:
+        ans = decider.ask(st, questions)
+    except RuntimeError as e:
+        return observations, ['status check unavailable, %d kept: %s' % (len(asked), str(e)[:120])]
+    drop, notes = set(), []
+    for i in asked:
+        a = ans.get('status_%d' % i) or {}
+        choice = a.get('choice')
+        p = float((a.get('probabilities') or {}).get(choice, 0.0)) if choice else 0.0
+        v = str(observations[i].get('value'))
+        if not choice or p < STATUS_SURE:
+            notes.append('status "%s": uncertain, kept' % v)
+        elif choice == 'circumstance':
+            continue
+        else:
+            drop.add(i)
+            notes.append('status "%s": %.2f %s, dropped' % (v, p, choice))
+    return [o for i, o in enumerate(observations) if i not in drop], notes
 
 
 class FakeModel:
@@ -401,7 +533,9 @@ def local_time(at):
         return str(at or '')
 
 
-def prompt(messages, context):
+def prompt(messages, context, shown=None):
+    """The user prompt. shown, when given, is the bodies the model is
+    listed (a relevance pick); validation still goes by every body."""
     lines = ['Channel: ' + str(context.get('channel', '')), 'The owner is ' + str(context.get('me', 'person/me')) + '.']
     if context.get('attrs'):
         lines.append('Attribute names by kind:')
@@ -414,10 +548,11 @@ def prompt(messages, context):
                 lines.append('  %s.%s: %s' % (kind, attr, text))
     if context.get('action_kinds'):
         lines.append('Action kinds you may propose: ' + ', '.join(context['action_kinds']))
+    listed = context.get('bodies', []) if shown is None else shown
     lines.append('Existing bodies (id | name | aliases):')
-    for b in context.get('bodies', []):
+    for b in listed:
         lines.append('  %s | %s | %s' % (b['id'], b.get('name', ''), ', '.join(b.get('aliases') or [])))
-    if not context.get('bodies'):
+    if not listed:
         lines.append('  (none known)')
     lines.append('')
     earlier = [m for m in messages if m.get('context')]
@@ -677,12 +812,13 @@ def validate(answer, messages, context):
     return {'bodies': bodies, 'observations': observations, 'actions': actions, 'notes': notes}
 
 
-def analyze(model, messages, context):
-    """Facts for one window of messages, or empty facts with a note on why."""
+def analyze(model, messages, context, shown=None):
+    """Facts for one window of messages, or empty facts with a note on why.
+    shown narrows the bodies the model is listed, never what it may write."""
     if not [m for m in messages if not m.get('context')]:
         return {'bodies': [], 'observations': [], 'actions': [], 'notes': []}
     try:
-        raw = model.chat(SYSTEM, prompt(messages, context))
+        raw = model.chat(SYSTEM, prompt(messages, context, shown))
         answer = parse_json(raw)
     except (RuntimeError, ValueError) as e:
         return {'bodies': [], 'observations': [], 'actions': [], 'notes': ['model: ' + str(e)[:200]]}

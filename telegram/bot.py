@@ -37,6 +37,11 @@ CONTEXT = None
 #  asked. Conservative on purpose: it skips only what it is sure of.
 DECIDER = None
 GATE_THRESHOLD = 0.3
+#  Jev picks the bodies the analyst sees, from those scored at or above KEEP;
+#  off until the owner has run the check. The status check runs whenever the
+#  decider does.
+RELEVANCE = False
+KEEP = 0.5
 #  how many earlier messages of a chat the model sees, as context, with each new one
 RECENT = 4
 
@@ -492,7 +497,17 @@ def classify_with_model(msg, sender_body, src, at, facts, ship, recent=()):
             facts.notes.append('gate: %.2f that this carries a fact, below %.2f: not read' % (p, GATE_THRESHOLD))
             return None
         facts.notes.append('gate: %.2f, read' % p)
-    got = grounded(analyze.analyze(MODEL, window, ctx), window, ctx)
+    shown = None
+    if DECIDER is not None and RELEVANCE:
+        picked = analyze.relevance_pick(DECIDER, window, ctx)
+        facts.notes.append(picked['note'])
+        shown = analyze.chosen(ctx, window, picked, KEEP, sender_body)
+    got = grounded(analyze.analyze(MODEL, window, ctx, shown), window, ctx)
+    if DECIDER is not None and got.get('observations'):
+        #  rule 8, held by a model that cannot answer outside the set: a
+        #  status that is a feeling never reaches the ship
+        got['observations'], said = analyze.status_check(DECIDER, window, got['observations'])
+        facts.notes.extend(said)
     facts.notes.extend(got['notes'])
     bodies, observations, actions = analyze.to_batch(got, SOURCE)
     facts.bodies.extend(bodies)
@@ -698,10 +713,13 @@ def run(argv=None):
             print('# model:', MODEL.model_name(), 'at', MODEL.url)
         except RuntimeError as e:
             raise SystemExit(str(e) + ' (start the server, or remove the model block)')
+    global RELEVANCE, KEEP
     DECIDER = analyze.Decider.from_config(cfg) if MODEL is not None else None
     if DECIDER is not None:
-        GATE_THRESHOLD = float((cfg.get('decide') or {}).get('threshold', GATE_THRESHOLD))
-        print('# gate:', DECIDER.model, 'below', GATE_THRESHOLD, 'the analyst is not asked')
+        dc = cfg.get('decide') or {}
+        GATE_THRESHOLD = float(dc.get('threshold', GATE_THRESHOLD))
+        RELEVANCE, KEEP = bool(dc.get('relevance', False)), float(dc.get('keep', KEEP))
+        print('# gate:', DECIDER.model, 'below', GATE_THRESHOLD, 'the analyst is not asked;', 'it sees the bodies Jev picks at %.2f' % KEEP if RELEVANCE else 'it sees every body', '; statuses are checked')
     reader = None
     if not args.updates:
         btok = analyze.secret(cfg['telegram'], 'token', 'TELEGRAM_TOKEN')
