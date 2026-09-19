@@ -495,12 +495,13 @@ class CalendarActions(unittest.TestCase):
     STATE = {'me': 'person/me', 'bodies': [{'id': 'person/me', 'name': 'me', 'aliases': []}, {'id': 'person/sarah', 'name': 'Sarah', 'aliases': []}],
              'schema': {'kinds': {'person': {'attrs': ['status']}}, 'actions': ['task', 'note', 'message', 'home', 'calendar'],
                         'payloads': {'calendar': {'title': 'required', 'starts': 'required: ISO 8601 UTC', 'ends': 'optional: ISO 8601 UTC', 'location': 'optional'},
-                                     'message': {'via': 'required: telegram', 'to': 'required', 'text': 'required'}}}}
+                                     'message': {'via': 'required: one of telegram, mail, chat', 'to': 'required: the body id of the person, e.g. person/andrea', 'text': 'required: the message, short, in the owner\'s own voice'},
+                                     'home': {'service': 'required', 'entity_id': 'required'}}}}
 
     def test_kinds_and_shapes_come_from_the_schema(self):
         ctx = analyze.context_from_state(self.STATE, 'chat')
-        self.assertEqual(ctx['action_kinds'], ['task', 'calendar'])
-        self.assertEqual(list(ctx['payloads']), ['calendar'])
+        self.assertEqual(ctx['action_kinds'], ['task', 'calendar', 'message'])
+        self.assertEqual(sorted(ctx['payloads']), ['calendar', 'message'])
         self.assertEqual(analyze.context_from_state({'schema': {'kinds': {}}}, 'chat')['action_kinds'], ['task'])
         text = analyze.prompt([{'id': 'm1', 'at': '2026-09-19T12:00:00Z', 'who': 'person/me', 'text': 'x'}], ctx)
         self.assertIn('Action kinds you may propose: task, calendar', text)
@@ -512,12 +513,27 @@ class CalendarActions(unittest.TestCase):
         answer = {'bodies': [], 'observations': [], 'actions': [
             {'kind': 'calendar', 'title': 'Dinner with Sarah', 'about': ['person/sarah'], 'payload': {'title': 'Dinner with Sarah', 'starts': '2026-09-25T20:00:00-04:00', 'location': 'the usual place'}, 'message': 'm1'},
             {'kind': 'calendar', 'title': 'Something sometime', 'payload': {'title': 'Something sometime'}, 'message': 'm1'},
-            {'kind': 'message', 'title': 'Tell Sarah', 'payload': {'via': 'telegram', 'to': 'person/sarah', 'text': 'x'}, 'message': 'm1'}]}
+            {'kind': 'home', 'title': 'Porch light', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}, 'message': 'm1'}]}
         got = analyze.validate(answer, msgs, ctx)
         self.assertEqual([a['kind'] for a in got['actions']], ['calendar'])
         self.assertEqual(got['actions'][0]['payload'], {'title': 'Dinner with Sarah', 'starts': '2026-09-26T00:00:00Z', 'location': 'the usual place'})
         self.assertIn('dropped action Something sometime: payload lacks starts', got['notes'])
-        self.assertIn('dropped action: Tell Sarah', got['notes'])
+        self.assertIn('dropped action: Porch light', got['notes'])
+
+    def test_a_message_action_holds_a_listed_channel_and_a_known_recipient(self):
+        ctx = analyze.context_from_state(self.STATE, 'telegram')
+        msgs = [{'id': 'm1', 'at': '2026-09-19T12:00:00Z', 'who': 'person/sarah', 'text': 'are you coming friday?'}]
+        answer = {'bodies': [], 'observations': [], 'actions': [
+            {'kind': 'message', 'title': 'Answer Sarah about Friday', 'about': ['person/sarah'], 'payload': {'via': 'Telegram', 'to': 'Person/Sarah', 'text': 'Yes, see you at 8'}, 'message': 'm1'},
+            {'kind': 'message', 'title': 'Text Bob', 'payload': {'via': 'telegram', 'to': 'person/bob', 'text': 'hi'}, 'message': 'm1'},
+            {'kind': 'message', 'title': 'Fax Sarah', 'payload': {'via': 'fax', 'to': 'person/sarah', 'text': 'hi'}, 'message': 'm1'}]}
+        got = analyze.validate(answer, msgs, ctx)
+        self.assertEqual([a['title'] for a in got['actions']], ['Answer Sarah about Friday'])
+        self.assertEqual(got['actions'][0]['payload'], {'via': 'telegram', 'to': 'person/sarah', 'text': 'Yes, see you at 8'})
+        self.assertIn('dropped action Text Bob: to names a body that does not exist: person/bob', got['notes'])
+        self.assertIn('dropped action Fax Sarah: via is fax, not one of telegram, mail, chat', got['notes'])
+        self.assertEqual(analyze.one_of('required: one of telegram, mail or chat'), ['telegram', 'mail', 'chat'])
+        self.assertEqual(analyze.one_of('optional'), [])
 
 
 if __name__ == '__main__':
