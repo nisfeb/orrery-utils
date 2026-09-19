@@ -65,6 +65,10 @@ Orrery's `task` actions belong in the calendar's Tasks view, so the owner sees o
 
 **A mirrored todo never comes back as a situation.** The same client reads the calendar into orrery, and a todo it wrote must not be read as an event the next time round. Skip every todo that carries `meta.orrery` (or a UID starting `orrery-`, or the `orrery` tag): it is orrery's own, and orrery already has it as an action. A todo the owner typed into the calendar by hand is not a situation either: it has no time span. The reader that writes situations from events looks at `cat` first and takes only `timed`, `allday` and `date` rows; `todo` rows never become bodies.
 
+## 12. A dismissal carries the owner's reason
+
+As of orrery 21 the ship runs the action generator itself: on every change to the state it asks the model, keeps what the schema allows and files proposals signed `generator`, under a cooldown and a daily cap the owner sets on the page. Clients no longer run `generator/run.py` for that; the util is the bench and the dry run. What clients do carry is the owner's answer. When the owner dismisses a proposal through a client, whether a tap in Talon, "dismiss A3 because it's just the event" in a reply to the brief, or a word to the Telegram bot, send the reason with the move: `POST /actions/<id> {"status": "dismissed", "note": "just the event"}`, at most 500 bytes. The note rides into the generator's next prompt beside the decision, where the model generalises from it: one "just the event" teaches it that every todo for attending is unwanted. A dismissal without a reason stops only that title. Never invent a reason the owner did not give.
+
 ## What reconcile does when a client gets it wrong
 
 `common/reconcile.py` is the owner's cleanup: `activities` folds occurrence situations into activities, `people` proposes merges for bodies that name one person, and `retire` closes situations that are over. It is a net, not a licence: a client that keeps re-creating bodies is undone by reconcile and undoes it back, every few minutes, and nobody wins.

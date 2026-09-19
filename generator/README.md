@@ -14,7 +14,7 @@ One prompt, built from the ship each run:
 - the action kinds the schema lists and the payload shape of each (the schema's `payloads` block: which keys are required and what they mean);
 - every body that matters: situations with their phase read off their times (closed, cancelled and over ones left out), activities with `last` and `next`, people with status and location, things, places, orgs;
 - the open actions, so it does not duplicate one;
-- the recent decisions (done, dismissed, failed), so it does not propose them again. A dismissal is the owner saying no.
+- the recent decisions (done, dismissed, failed) with the owner's reason when one was given, so it does not propose them again and learns what kind of thing is unwanted. A dismissal is the owner saying no; a dismissal with a reason is the owner saying why, and the model generalises from it.
 
 `--no-model` prints that prompt and stops; `--show-prompt` prints it before asking. The state is read as the key sees it, so a key without `sensitive: write` never puts `health` or `income` in front of a hosted model.
 
