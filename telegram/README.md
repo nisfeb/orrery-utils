@@ -1,5 +1,7 @@
 # telegram: a Telegram bot for orrery
 
+As of orrery version 29 the ship reads Telegram itself, through a webhook, on the Telegram card under Settings; see the root README there. What stays here is the backfill (`backfill.py`, for what came before any reader was connected), a dry-run harness for the gate and the model, and a reader for a ship still on an older version. `chats`, `people`, the token and the gate and escalate thresholds mean the same thing on the card as they do in `config.json`, so a config built for the bot carries over to it.
+
 Both directions. People you name tell the bot facts in a short command grammar, in a private chat with the bot or in a group it sits in, and the bot sends them to orrery with a scoped key. It also delivers approved actions of kind `message` addressed via Telegram, to the people you mapped, and reports done or failed.
 
 Standard library only: `bot.py`, and `backfill.py` for the past. It uses the Bot API with long polling, so it runs anywhere with outbound HTTPS and needs no public address.
