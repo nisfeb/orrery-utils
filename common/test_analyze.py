@@ -560,6 +560,28 @@ class CalendarActions(unittest.TestCase):
         self.assertEqual(analyze.one_of('optional'), [])
 
 
+class Escalation(unittest.TestCase):
+    def test_escalate_asks_with_the_facts_and_a_dead_decider_says_no(self):
+        ctx = {'bodies': [{'id': 'person/me', 'name': 'me', 'aliases': []}], 'me': 'person/me'}
+        window = [{'id': 'm1', 'at': '2026-09-19T12:00:00Z', 'who': 'person/me', 'text': 'car died on route 9'}]
+        facts = [{'subject': 'person/me', 'attr': 'status', 'value': 'stranded, waiting for a tow'}]
+        d = analyze.FakeDecider({'needs_help_now': {'type': 'noul', 'noul': 0.88}})
+        self.assertEqual(analyze.escalate(d, window, facts, ctx), 0.88)
+        st, q = d.asked[0]
+        self.assertEqual(st['facts'], [{'subject': 'person/me', 'attr': 'status', 'value': 'stranded, waiting for a tow'}])
+        self.assertIn('needs_help_now', q)
+
+        class Dead:
+            def ask(self, state, questions):
+                raise RuntimeError('down')
+        self.assertEqual(analyze.escalate(Dead(), window, facts, ctx), 0.0)
+        got = {'observations': [{'subject': 'person/me', 'attr': 'status', 'value': 'x'}, {'subject': 'situation/2026-09-19-breakdown', 'attr': 'status', 'value': 'open'}],
+               'bodies': [{'id': 'situation/2026-09-19-breakdown', 'name': 'Breakdown'}, {'id': 'org/tow', 'name': 'Tow'}]}
+        self.assertEqual(analyze.urgent_ids(got), ['situation/2026-09-19-breakdown'])
+        self.assertEqual(analyze.urgent_ids({'observations': [{'subject': 'person/me', 'attr': 'status'}, {'subject': 'thing/subaru', 'attr': 'status'}]}), ['thing/subaru'])
+        self.assertEqual(analyze.urgent_ids({'observations': [{'subject': 'person/me', 'attr': 'status'}]}), [])
+
+
 if __name__ == '__main__':
     unittest.main()
 

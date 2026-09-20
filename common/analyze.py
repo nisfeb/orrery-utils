@@ -376,6 +376,49 @@ def gate(decider, window, context):
     return float(a.get('noul', 1.0))
 
 
+#  ==  whether the message needs help now, asked of the decision model
+
+ESCALATE_QUESTION = {'needs_help_now': {
+    'type': 'noul',
+    'instructions': 'Does the new message describe a situation in which the owner, or someone close to them, needs help within the hour?',
+    'criteria': {'true': 'a breakdown, an accident, an injury or sudden illness, being stranded, locked out or without power, a child who must be picked up now, a missed or cancelled flight today, an emergency at home or at work',
+                 'false': 'a plan, news, a routine update, a feeling, a complaint, or anything that can wait until tomorrow'},
+}}
+
+
+def escalate(decider, window, facts, context):
+    """The probability that the newest message needs help within the hour,
+    asked once the analyst's facts are known: the message, the facts just
+    kept (subject, attribute, value) and the known bodies are the state. A
+    decider that cannot answer returns 0, so nothing escalates by accident.
+    The reader that gets a yes calls the ship's urgent pass (client guide
+    rule 16); the ship stores nothing about it."""
+    st = gate_state(window, context)
+    st['facts'] = [{'subject': o.get('subject'), 'attr': o.get('attr'), 'value': str(o.get('value'))}
+                   for o in (facts or []) if isinstance(o, dict)][:40]
+    st['rule'] = 'help within the hour means someone must act now; a plan or an update is not that'
+    try:
+        ans = decider.ask(st, ESCALATE_QUESTION)
+    except RuntimeError:
+        return 0.0
+    a = ans.get('needs_help_now') or {}
+    return float(a.get('noul', 0.0))
+
+
+def urgent_ids(facts):
+    """What the urgent pass should look at first: the situations the kept
+    facts are about (the bodies made in the same batch count), else the
+    things, places and orgs they are about, since a situation the model
+    titled in its own words does not survive grounding. Empty is fine: the
+    pass still runs."""
+    subjects = [str((o or {}).get('subject') or '') for o in facts.get('observations') or []]
+    subjects += [str((b or {}).get('id') or '') for b in facts.get('bodies') or []]
+    sits = list(dict.fromkeys(s for s in subjects if s.startswith('situation/')))
+    if sits:
+        return sits[:5]
+    return list(dict.fromkeys(s for s in subjects if s.split('/')[0] in ('thing', 'place', 'org')))[:5]
+
+
 #  ==  which bodies a message is about, asked of the decision model
 
 RELEVANCE_GROUP = 40

@@ -151,6 +151,54 @@ class WithModel(unittest.TestCase):
         finally:
             bot.DECIDER = None
 
+    def test_a_message_that_needs_help_now_asks_for_one_urgent_pass(self):
+        """Two messages about one breakdown: the facts land, then one urgent
+        pass names the situation; a message below the threshold asks for
+        none, and a decider that cannot answer never escalates."""
+        bot.MODEL = bot.analyze.FakeModel(json.dumps({'bodies': [{'id': 'situation/2026-09-17-breakdown', 'name': 'Breakdown on Route 9', 'aliases': ['route 9']}], 'observations': [
+            {'subject': 'person/me', 'attr': 'status', 'value': 'stranded, waiting for a tow', 'conf': 85, 'message': 'telegram/1001/1'},
+            {'subject': 'situation/2026-09-17-breakdown', 'attr': 'location', 'value': 'route 9', 'conf': 85, 'message': 'telegram/1001/1'}], 'actions': []}))
+        answers = {'worth_reading': {'type': 'noul', 'noul': 0.9},
+                   'status_0': {'type': 'choice', 'choice': 'circumstance', 'probabilities': {'circumstance': 0.98}},
+                   'needs_help_now': {'type': 'noul', 'noul': 0.91}}
+        bot.DECIDER, bot.ESCALATE = bot.analyze.FakeDecider(answers), 0.6
+
+        class Ship(self.KnowingShip):
+            generated = []
+
+            def generate(self, about):
+                self.generated.append(list(about))
+                return 200, {'ok': True}
+
+        ups = [{'update_id': 1, 'message': {'message_id': 1, 'date': 1789660800, 'chat': {'id': 1001}, 'from': {'id': 1001}, 'text': 'car died on route 9, stranded waiting for a tow'}},
+               {'update_id': 2, 'message': {'message_id': 2, 'date': 1789660860, 'chat': {'id': 1001}, 'from': {'id': 1001}, 'text': 'still on route 9 waiting'}}]
+        try:
+            ship = Ship()
+            bot.one_pass(load('config.json'), ship, bot.NoTelegram(), ups, {}, '/dev/null', True)
+            self.assertEqual(ship.generated, [['situation/2026-09-17-breakdown']])
+            asked = [q for _, q in bot.DECIDER.asked if 'needs_help_now' in q]
+            self.assertEqual(len(asked), 1)  #  the second message echoes the first: no new facts, no question
+            st = [s for s, q in bot.DECIDER.asked if 'needs_help_now' in q][0]
+            self.assertEqual(st['facts'][0]['value'], 'stranded, waiting for a tow')
+            #  a situation the model titled in its own words does not survive
+            #  grounding; the pass is still asked for, with nothing to put first
+            bot.MODEL = bot.analyze.FakeModel(json.dumps({'bodies': [{'id': 'situation/2026-09-17-breakdown', 'name': 'Breakdown'}], 'observations': [
+                {'subject': 'person/me', 'attr': 'status', 'value': 'stranded, waiting for a tow', 'conf': 85, 'message': 'telegram/1001/1'}], 'actions': []}))
+            ship = Ship(); ship.generated = []
+            bot.one_pass(load('config.json'), ship, bot.NoTelegram(), ups[:1], {}, '/dev/null', True)
+            self.assertEqual(ship.generated, [[]])
+            answers['needs_help_now'] = {'type': 'noul', 'noul': 0.2}
+            ship = Ship(); ship.generated = []
+            bot.one_pass(load('config.json'), ship, bot.NoTelegram(), ups[:1], {}, '/dev/null', True)
+            self.assertEqual(ship.generated, [])
+            bot.ESCALATE = None
+            answers['needs_help_now'] = {'type': 'noul', 'noul': 0.99}
+            ship = Ship(); ship.generated = []
+            bot.one_pass(load('config.json'), ship, bot.NoTelegram(), ups[:1], {}, '/dev/null', True)
+            self.assertEqual(ship.generated, [])
+        finally:
+            bot.DECIDER, bot.ESCALATE = None, None
+
     def test_jev_picks_the_bodies_and_checks_the_status(self):
         bot.MODEL = bot.analyze.FakeModel(json.dumps({'bodies': [], 'observations': [
             {'subject': 'person/me', 'attr': 'status', 'value': 'home with the car at the shop', 'conf': 80, 'message': 'telegram/1001/13'},

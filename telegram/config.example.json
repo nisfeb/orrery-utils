@@ -10,7 +10,8 @@
     "model": "typesafe/jev-1.13",
     "threshold": 0.3,
     "relevance": false,
-    "keep": 0.5
+    "keep": 0.5,
+    "escalate": 0.6
   },
   "state": "state.json",
   "chats": [

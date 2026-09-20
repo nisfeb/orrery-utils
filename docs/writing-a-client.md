@@ -98,6 +98,20 @@ An executor is the other side. It reads `GET /actions?status=open`, takes only t
 
 A client that knows where the owner is (a phone) writes `person/me.location`, as the schema's note says: a `{"ref": "place/..."}` when a place the ship knows is near, else a short place name (the neighbourhood or town the device looks up), else `null` once they have left a known place and the new one is unknown. Never the coordinates: those stay on the device. A place the ship can match carries `geo`, `"lat,lon"` or `{"lat", "lon"}`, which the owner or a reader writes once. The same place is said once, not on every fix, and a move is reported at most every few minutes (Talon: a move of 400 m, at most every ten minutes). The source kind is `device`, the confidence 90 for a known place and 80 for a name. The generator sees the location in the owner's row and can propose from it; nothing else on the ship reads it.
 
+## 16. A message that needs help now asks for an urgent pass
+
+The generator runs on the ship after every change, but under a cooldown (an hour unless set) and a daily cap, so a breakdown at 10:05 after a 10:00 pass would wait until 11:00. The reader is the one thing with the words in front of it, so the reader decides. Once the analyst's facts for a message have survived validation, ask the decision model one typed question with the message, the earlier messages, the facts just kept (subject, attribute, value) and the known bodies as the state:
+
+```
+needs_help_now (noul): Does the new message describe a situation in which the owner, or someone close to them, needs help within the hour?
+  true:  a breakdown, an accident, an injury or sudden illness, being stranded, locked out or without power, a child who must be picked up now, a missed or cancelled flight today, an emergency at home or at work
+  false: a plan, news, a routine update, a feeling, a complaint, or anything that can wait until tomorrow
+```
+
+The question is `ESCALATE_QUESTION` in `common/analyze.py`, and `analyze.escalate` is the call; a client in another language sends the same words. At or above the owner's threshold (`decide.escalate`, 0.6 to start) the client sends its facts as it always does, then, once they have landed, calls `POST /apps/orrery/api/generate` with `{"about": ["situation/..."]}`, the situations the facts were about (the ones it just made count), else the things, places or orgs they were about, at most five, or an empty list when the facts were only about the owner: the pass runs either way. The key needs `write` in its scope, which a reader has. The ship runs a pass at once, past the cooldown, with those situations listed first under a line saying the owner may need help now, counted against `max_urgent` (five a day unless set) instead of the daily cap; the sixth in a day answers `held`. Nothing about urgency is stored on the ship: the pass is earlier, that is all, and its proposals arrive the way every proposal does, by push.
+
+One request per batch of messages, however many say the same thing: the ship's settle folds them anyway, and the cap is small. A decider that cannot answer escalates nothing. A backfill or any reader of history never escalates. Talon's triage asks the same question at the same point, after its extractor's claims survive, with its own decider, and calls the same route.
+
 ## What reconcile does when a client gets it wrong
 
 `common/reconcile.py` is the owner's cleanup: `activities` folds occurrence situations into activities, `people` proposes merges for bodies that name one person, and `retire` closes situations that are over. It is a net, not a licence: a client that keeps re-creating bodies is undone by reconcile and undoes it back, every few minutes, and nobody wins.

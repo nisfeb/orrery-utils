@@ -36,6 +36,9 @@ CONTEXT = None
 #  message carries a fact at all; below the threshold the analyst is not
 #  asked. Conservative on purpose: it skips only what it is sure of.
 DECIDER = None
+#  decide.escalate: at or above it the reader asks the ship for an urgent
+#  pass over the situations it just wrote; None leaves the lane closed
+ESCALATE = None
 GATE_THRESHOLD = 0.3
 #  Jev picks the bodies the analyst sees, from those scored at or above KEEP;
 #  off until the owner has run the check. The status check runs whenever the
@@ -108,6 +111,10 @@ class Ship:
             body['note'] = note[:500]
         return request(self.api + '/actions/' + aid, 'POST', body, self.h)
 
+    def generate(self, about):
+        """An urgent pass now, past the cooldown, over these situations first."""
+        return request(self.api + '/generate', 'POST', {'about': list(about)}, self.h)
+
 
 class NoShip:
     """A dry run: writes print, reads go to the ship when one is given. Reading
@@ -136,6 +143,10 @@ class NoShip:
 
     def move(self, aid, status, note=''):
         print(json.dumps({'move': {'id': aid, 'status': status, 'note': note}}))
+        return 200, None
+
+    def generate(self, about):
+        print(json.dumps({'generate': {'about': list(about)}}))
         return 200, None
 
 
@@ -247,6 +258,10 @@ class Facts:
         self.actions = []
         self.notes = []
         self.reply = None
+        #  whether the message needs help now, and what the urgent pass
+        #  should look at first once the facts are sent
+        self.escalated = False
+        self.urgent = []
 
     def obs(self, src, subject, attr, value, at, conf=100):
         self.observations.append({'subject': subject, 'attr': attr, 'value': value, 'at': iso(at),
@@ -509,6 +524,14 @@ def classify_with_model(msg, sender_body, src, at, facts, ship, recent=()):
         got['observations'], said = analyze.status_check(DECIDER, window, got['observations'])
         facts.notes.extend(said)
     facts.notes.extend(got['notes'])
+    if DECIDER is not None and ESCALATE is not None and got.get('observations'):
+        p = analyze.escalate(DECIDER, window, got['observations'], ctx)
+        if p >= ESCALATE:
+            facts.escalated = True
+            facts.urgent.extend(analyze.urgent_ids(got))
+            facts.notes.append('escalate: %.2f that this needs help now, at or above %.2f: an urgent pass' % (p, ESCALATE))
+        else:
+            facts.notes.append('escalate: %.2f' % p)
     bodies, observations, actions = analyze.to_batch(got, SOURCE)
     facts.bodies.extend(bodies)
     analyze.remember(ctx, bodies)
@@ -665,6 +688,7 @@ EXECUTED_AT = 0.0
 
 def one_pass(cfg, ship, tg, updates, state, state_path, dry):
     global EXECUTED_AT
+    urgent, escalated = [], False
     for u in updates:
         uid = u.get('update_id')
         #  a business message is one of the owner's own private chats, read
@@ -688,6 +712,9 @@ def one_pass(cfg, ship, tg, updates, state, state_path, dry):
             if analyze.model_down(facts.notes):
                 print('stopping before update %s until the model answers' % uid, file=sys.stderr)
                 return False
+            if facts.escalated:
+                escalated = True
+                urgent.extend(x for x in facts.urgent if x not in urgent)
             if not facts.empty() and not send(ship, facts):
                 print('stopping before update %s so the next pass retries it' % uid, file=sys.stderr)
                 return False
@@ -701,6 +728,10 @@ def one_pass(cfg, ship, tg, updates, state, state_path, dry):
             state['offset'] = int(uid) + 1
             if not dry:
                 save_state(state_path, state)
+    #  one urgent pass for the whole batch, after its facts landed
+    if escalated:
+        code, d = ship.generate(urgent)
+        print('urgent pass %s for %s' % ('asked' if code == 200 else 'refused %s %s' % (code, str(d)[:120]), ', '.join(urgent)))
     if time.time() - EXECUTED_AT >= cfg.get('execute_every', EXECUTE_EVERY):
         execute(cfg, ship, tg, state)
         EXECUTED_AT = time.time()
@@ -717,7 +748,7 @@ def run(argv=None):
     ap.add_argument('--loop', action='store_true', help='long poll for ever')
     args = ap.parse_args(argv)
     cfg = analyze.load_config(args.config)
-    global MODEL, CONTEXT, DECIDER, GATE_THRESHOLD
+    global MODEL, CONTEXT, DECIDER, GATE_THRESHOLD, ESCALATE
     MODEL, CONTEXT = None, None
     mc = cfg.get('model')
     if mc and mc.get('enabled', True):
@@ -728,6 +759,7 @@ def run(argv=None):
             raise SystemExit(str(e) + ' (start the server, or remove the model block)')
     global RELEVANCE, KEEP
     DECIDER = analyze.Decider.from_config(cfg) if MODEL is not None else None
+    ESCALATE = float(cfg['decide']['escalate']) if DECIDER is not None and isinstance(cfg.get('decide'), dict) and cfg['decide'].get('escalate') is not None else None
     if DECIDER is not None:
         dc = cfg.get('decide') or {}
         GATE_THRESHOLD = float(dc.get('threshold', GATE_THRESHOLD))
