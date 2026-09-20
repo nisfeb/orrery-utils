@@ -506,6 +506,45 @@ def closed_before(body, cutoff):
 READER_ACTIONS = ('task', 'calendar', 'message')
 
 
+#  a day, a date or an hour in a message's words: what a plan fixed in time
+#  has (Talon's rule, 59d08558)
+FIXES_A_TIME = re.compile(
+    r"\b(\d{1,2}(:\d{2})? ?(am|pm)|\d{1,2}:\d{2}|at \d{1,2}|noon|midnight|tonight|tomorrow|today|"
+    r"(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)(day)?|"
+    r"(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.? \d{1,2}|\d{1,2}(st|nd|rd|th)|\d{1,2}/\d{1,2})\b", re.I)
+
+
+def plan_problem(payload, text, at):
+    """Why a calendar action does not stand against the message it came
+    from, or None. The message names a day or an hour, the title is in its
+    words, the start is ahead of it (six hours' grace for "tonight") and
+    within the year, an end is after the start and within a fortnight, and
+    a location is one the message says. The end and the location are
+    dropped rather than failing the action."""
+    if not FIXES_A_TIME.search(text or ''):
+        return 'the message fixes no time'
+    words = {w for w in re.findall(r'[a-z0-9]+', str(text or '').lower()) if len(w) >= 3}
+    if not any(w in words for w in re.findall(r'[a-z0-9]+', str(payload.get('title') or '').lower()) if len(w) >= 3):
+        return 'the title is not in the message\'s words'
+    start = iso_or_none(payload.get('starts'))
+    when = iso_or_none(at) or start
+    if not start:
+        return 'starts is not a time'
+    s = datetime.fromisoformat(start.replace('Z', '+00:00'))
+    w = datetime.fromisoformat(when.replace('Z', '+00:00'))
+    if s < w - timedelta(hours=6) or s > w + timedelta(days=366):
+        return 'starts is not within the year ahead of the message'
+    end = iso_or_none(payload.get('ends'))
+    if end:
+        e = datetime.fromisoformat(end.replace('Z', '+00:00'))
+        if e <= s or e > s + timedelta(days=14):
+            payload.pop('ends', None)
+    loc = payload.get('location')
+    if loc and str(loc).lower() not in str(text or '').lower():
+        payload.pop('location', None)
+    return None
+
+
 def one_of(shape_value):
     """The values a payload key admits, read off its schema line
     ("required: one of telegram, mail, chat"), or nothing when it is free."""
@@ -727,7 +766,9 @@ def validate(answer, messages, context):
     ids = [m['id'] for m in messages if not m.get('context')]
     context_ids = {m['id'] for m in messages if m.get('context')}
     at_of = {m['id']: m.get('at') for m in messages}
+    text_of = {m['id']: str(m.get('text') or '') for m in messages}
     last = ids[-1] if ids else ''
+    planned = set()
     bodies = []
     alias_of = {}
     for b in answer.get('bodies') or []:
@@ -857,6 +898,15 @@ def validate(answer, messages, context):
         if bad:
             notes.append('dropped action %s: %s' % (title, bad))
             continue
+        #  a calendar action stands against its message, once per message
+        if kind == 'calendar':
+            why = plan_problem(payload, text_of.get(row['message'], ''), at_of.get(row['message']))
+            if why is None and row['message'] in planned:
+                why = 'a second plan from one message'
+            if why:
+                notes.append('dropped action %s: %s' % (title, why))
+                continue
+            planned.add(row['message'])
         if payload:
             row['payload'] = payload
         actions.append(row)

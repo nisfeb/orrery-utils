@@ -509,9 +509,9 @@ class CalendarActions(unittest.TestCase):
 
     def test_a_calendar_action_is_kept_with_its_payload_and_dropped_without_its_time(self):
         ctx = analyze.context_from_state(self.STATE, 'chat')
-        msgs = [{'id': 'm1', 'at': '2026-09-19T12:00:00Z', 'who': 'person/me', 'text': 'dinner with sarah friday at 8'}]
+        msgs = [{'id': 'm1', 'at': '2026-09-19T12:00:00Z', 'who': 'person/me', 'text': 'dinner with sarah friday at 8 at the usual place'}]
         answer = {'bodies': [], 'observations': [], 'actions': [
-            {'kind': 'calendar', 'title': 'Dinner with Sarah', 'about': ['person/sarah'], 'payload': {'title': 'Dinner with Sarah', 'starts': '2026-09-25T20:00:00-04:00', 'location': 'the usual place'}, 'message': 'm1'},
+            {'kind': 'calendar', 'title': 'Dinner with Sarah', 'about': ['person/sarah'], 'payload': {'title': 'Dinner with Sarah', 'starts': '2026-09-25T20:00:00-04:00', 'ends': '2026-11-01T00:00:00Z', 'location': 'the usual place'}, 'message': 'm1'},
             {'kind': 'calendar', 'title': 'Something sometime', 'payload': {'title': 'Something sometime'}, 'message': 'm1'},
             {'kind': 'home', 'title': 'Porch light', 'payload': {'service': 'light.turn_on', 'entity_id': 'light.porch'}, 'message': 'm1'}]}
         got = analyze.validate(answer, msgs, ctx)
@@ -519,6 +519,30 @@ class CalendarActions(unittest.TestCase):
         self.assertEqual(got['actions'][0]['payload'], {'title': 'Dinner with Sarah', 'starts': '2026-09-26T00:00:00Z', 'location': 'the usual place'})
         self.assertIn('dropped action Something sometime: payload lacks starts', got['notes'])
         self.assertIn('dropped action: Porch light', got['notes'])
+
+    def test_a_plan_stands_against_its_message(self):
+        ctx = analyze.context_from_state(self.STATE, 'chat')
+        at = '2026-09-19T12:00:00Z'
+        def run(text, payload, mid='m1'):
+            msgs = [{'id': 'm1', 'at': at, 'who': 'person/me', 'text': text}]
+            answer = {'bodies': [], 'observations': [], 'actions': [{'kind': 'calendar', 'title': payload['title'], 'payload': payload, 'message': mid}]}
+            return analyze.validate(answer, msgs, ctx)
+        got = run('we should get dinner sometime', {'title': 'Dinner', 'starts': '2026-09-25T20:00:00Z'})
+        self.assertEqual(got['actions'], [])
+        self.assertIn('dropped action Dinner: the message fixes no time', got['notes'])
+        got = run('dentist tuesday at 2:30', {'title': 'Haircut', 'starts': '2026-09-22T14:30:00Z'})
+        self.assertIn("dropped action Haircut: the title is not in the message's words", got['notes'])
+        got = run('dentist tuesday at 2:30', {'title': 'Dentist', 'starts': '2027-11-22T14:30:00Z'})
+        self.assertIn('dropped action Dentist: starts is not within the year ahead of the message', got['notes'])
+        got = run('dentist tuesday at 2:30 on main street', {'title': 'Dentist', 'starts': '2026-09-22T14:30:00Z', 'ends': '2026-09-22T13:00:00Z', 'location': 'Main Street'})
+        self.assertEqual(got['actions'][0]['payload'], {'title': 'Dentist', 'starts': '2026-09-22T14:30:00Z', 'location': 'Main Street'})
+        msgs = [{'id': 'm1', 'at': at, 'who': 'person/me', 'text': 'dentist tuesday at 2:30 then dinner at 8'}]
+        answer = {'bodies': [], 'observations': [], 'actions': [
+            {'kind': 'calendar', 'title': 'Dentist', 'payload': {'title': 'Dentist', 'starts': '2026-09-22T14:30:00Z'}, 'message': 'm1'},
+            {'kind': 'calendar', 'title': 'Dinner', 'payload': {'title': 'Dinner', 'starts': '2026-09-22T20:00:00Z'}, 'message': 'm1'}]}
+        got = analyze.validate(answer, msgs, ctx)
+        self.assertEqual([a['title'] for a in got['actions']], ['Dentist'])
+        self.assertIn('dropped action Dinner: a second plan from one message', got['notes'])
 
     def test_a_message_action_holds_a_listed_channel_and_a_known_recipient(self):
         ctx = analyze.context_from_state(self.STATE, 'telegram')
