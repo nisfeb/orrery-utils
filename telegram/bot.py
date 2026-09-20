@@ -523,6 +523,13 @@ def classify_with_model(msg, sender_body, src, at, facts, ship, recent=()):
 #  back a few times before it is given up on
 CLAIM_READS = 5
 CLAIM_PAUSE = 0.2
+#  how often the executor asks the ship for open actions. Every request
+#  into a grubbery app costs the ship about a second of its single
+#  thread, and the long poll returns every thirty seconds whether or not
+#  a message came, so asking on every pass was a heartbeat of requests
+#  (a fifth of ricsul's busy time, measured 2026-09-20). An approved
+#  message now goes out within this many seconds instead.
+EXECUTE_EVERY = 300
 
 
 def claimant(a):
@@ -653,7 +660,11 @@ def remember(state, msg, sender_body):
     del ring[:-RECENT]
 
 
+EXECUTED_AT = 0.0
+
+
 def one_pass(cfg, ship, tg, updates, state, state_path, dry):
+    global EXECUTED_AT
     for u in updates:
         uid = u.get('update_id')
         #  a business message is one of the owner's own private chats, read
@@ -690,7 +701,9 @@ def one_pass(cfg, ship, tg, updates, state, state_path, dry):
             state['offset'] = int(uid) + 1
             if not dry:
                 save_state(state_path, state)
-    execute(cfg, ship, tg, state)
+    if time.time() - EXECUTED_AT >= cfg.get('execute_every', EXECUTE_EVERY):
+        execute(cfg, ship, tg, state)
+        EXECUTED_AT = time.time()
     if not dry:
         save_state(state_path, state)
     return True

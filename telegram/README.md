@@ -45,6 +45,8 @@ With a `model` block, in the config or in the repo's shared `config.json` throug
 
 ## Your chats, live
 
+The bot also carries out the message actions the owner approves (kind `message`, `via` telegram): it asks the ship for open actions every `execute_every` seconds (300 unless set), claims each one addressed to a chat it knows, sends it and reports done or failed. It used to ask on every long poll, which returns every thirty seconds whether or not anything came, and every request into a grubbery app costs the ship about a second, so that was a fifth of the ship's busy time.
+
 With Telegram Premium you can connect the bot to your own account through Telegram Business, and it then gets every message in the private chats you pick, yours and the other person's, as they arrive, on the same long poll as everything else. No export, no second program.
 
 1. BotFather: `/mybots`, your bot, Bot Settings, Secretary Mode (older BotFathers call it Business Mode), on.

@@ -468,5 +468,31 @@ class Actions(unittest.TestCase):
         self.assertEqual(state['executed'], ['a1'])
 
 
+class ExecutorCadence(unittest.TestCase):
+    """The executor asks the ship at most every execute_every seconds, so
+    an idle long poll is not a request into the ship every half minute."""
+
+    def test_a_pass_inside_the_interval_does_not_ask_for_actions(self):
+        calls = []
+
+        class CountingShip:
+            def actions(self, status='open'):
+                calls.append(status)
+                return []
+
+            def state(self):
+                return {'bodies': []}
+
+        cfg = {'chats': [], 'people': {}, 'execute_every': 300}
+        bot.EXECUTED_AT = 0.0
+        bot.one_pass(cfg, CountingShip(), bot.NoTelegram(), [], {}, None, True)
+        self.assertEqual(calls, ['open'])
+        bot.one_pass(cfg, CountingShip(), bot.NoTelegram(), [], {}, None, True)
+        self.assertEqual(calls, ['open'])
+        bot.EXECUTED_AT = 0.0
+        bot.one_pass(cfg, CountingShip(), bot.NoTelegram(), [], {}, None, True)
+        self.assertEqual(calls, ['open', 'open'])
+
+
 if __name__ == '__main__':
     unittest.main()
