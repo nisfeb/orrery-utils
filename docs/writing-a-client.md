@@ -106,6 +106,19 @@ The question is `ESCALATE_QUESTION` in `common/analyze.py`, and `analyze.escalat
 
 One request per batch of messages, however many say the same thing: the ship's settle folds them anyway, and the cap is small. A decider that cannot answer escalates nothing. A backfill or any reader of history never escalates. Talon's triage asks the same question at the same point, after its extractor's claims survive, with its own decider, and calls the same route. The ship's own Telegram reader (orrery version 29) asks it too, at the owner's `escalate` threshold, over the situations its own facts just landed on.
 
+## 17. A note at approval refines the action
+
+As of orrery 36 the approval window takes free text. Under a proposed action the client shows one input, and what the owner types there goes to the ship: `POST /actions/<id>/refine {"text": "include dana egan in this"}` through a key whose `actions` names the kind. The ship runs one model call with the action, the schema's payload shapes, the bodies the text could mean (resolved the way a reader resolves them, rule 2, so "dana egan" is `person/dana-hill` or nobody) and the owner's clock, and answers within a few seconds:
+
+```
+{"ok": true, "action": {...the same id, revised...}, "extras": [{...a new proposed action...}], "note": ""}
+{"ok": false, "note": "no person named dana egan on the ship"}
+```
+
+A refinement changes the action in place: title, `payload`, `about` and `due` are rewritten, the id and the history stay, and one step `revised` by the owner is appended, so the trail says the text was the owner's. "Include dana egan in this" adds her to a message's `to` or an event's participants; "make it 3pm" moves the time; "shorter" rewrites the text. What the text asks for beyond the action itself comes back as `extras`: "also add a todo the day before to go shopping" is a second action, kind `task`, its due the event's start less a day, filed as proposed with `about` naming the original, and it carries `refined_from` with the original's id in its payload. A refusal changes nothing and says why in `note`.
+
+**The revised action stays proposed.** The owner approves it with the same tap as before, on what the ship actually holds, and each extra is its own proposal with its own tap. A client redraws the window from the answer, never from what it sent: the ship may have resolved a name the owner spelled loosely, kept a time it could not move, or refused. A refinement on an action that is not `proposed` answers `409` with `note`; approve first, then there is nothing to refine, and a done action is history. Refinement text is a request, not a fact: the ship files no observation from it, and a client writes none either (rule 6 holds). One refinement at a time per action; a second while the first is running answers `409`.
+
 ## What reconcile does when a client gets it wrong
 
 `common/reconcile.py` is the owner's cleanup: `activities` folds occurrence situations into activities, `people` proposes merges for bodies that name one person, and `retire` closes situations that are over. It is a net, not a licence: a client that keeps re-creating bodies is undone by reconcile and undoes it back, every few minutes, and nobody wins.
