@@ -2,7 +2,7 @@
 
 As of orrery version 29 the ship reads Telegram itself, through a webhook, on the Telegram card under Settings; see the root README there. What stays here is the backfill (`backfill.py`, for what came before any reader was connected), a dry-run harness for the gate and the model, and a reader for a ship still on an older version. `chats`, `people`, the token and the gate and escalate thresholds mean the same thing on the card as they do in `config.json`, so a config built for the bot carries over to it.
 
-As of version 34 the ship's own reader has no commands; a slash message is read as text.
+As of version 34 the ship's own reader has no commands; a slash message is read as text. As of the same version the ship also sends: an approved `message` via `telegram` goes out through the token on the card, from the ship's own executor, the moment the owner approves it, and the reader replies to nothing else. The delivery loop described under Delivery and Your chats, live is the bot's own executor for a ship older than 34. On 34 it must not run beside the ship's, or a message goes twice; once the webhook is registered it cannot, since Telegram answers the bot's long poll with 409 and `bot.py` exits.
 
 Both directions. People you name tell the bot facts in a short command grammar, in a private chat with the bot or in a group it sits in, and the bot sends them to orrery with a scoped key. It also delivers approved actions of kind `message` addressed via Telegram, to the people you mapped, and reports done or failed.
 
@@ -31,6 +31,8 @@ A `decide` block puts a decision model in front of the analyst. TypeSafe's Jev, 
 With `escalate` in the `decide` block (0.6 in the example), the decider is asked one more question once the analyst's facts are known: does this need help within the hour? A breakdown, an injury, being stranded, a child to fetch now. At or above the threshold the bot sends its facts as usual and then asks the ship for an urgent pass, `POST /generate {"about": [the situations it just wrote]}`, which runs the generator at once, past its cooldown, under the ship's own small daily cap (client guide rule 16). One request per batch of messages, whatever they say. Without `escalate` the lane is closed. The backfill never escalates: it reads history.\n\nThe same decider does two more things, both from Talon's measurements on 2026-09-19. Every body the ship knows goes to it, ranked (the ones named in the message first, then people, then activities, places and orgs, then situations, then things), since a cut at eighty could drop the one person a message is about. With `"relevance": true` in the `decide` block it also picks the bodies the analyst is shown: one yes-or-no question per body, in groups of forty, and only those scored at or above `keep` (0.5) plus the sender and the owner reach the small model's prompt; the right bodies scored 0.8 to 0.96 and the rest 0.06 or less on a state of 173 bodies. Off until the owner has watched it, since a wrong cut hides a body from the analyst; validation always goes by every body. And every status the analyst proposes for a person is put to it as circumstance, feeling or neither, each question naming its own proposal (unnamed, the model answers several alike): a feeling or a non-status at 0.6 or more is dropped and noted, an uncertain one kept and noted, and a decider that cannot answer keeps every row.
 
 ## Delivery
+
+On orrery 34 and later the ship does this itself (see above); what follows is the bot's executor for an older ship.
 
 The assistant proposes a message:
 
