@@ -2,7 +2,7 @@
 
 Clients that feed [orrery](https://github.com/nisfeb/orrery) from outside Urbit, and act on what it proposes. Orrery keeps the model of your world on your ship and runs no AI. Everything that reads a mailbox, a calendar, a house or a phone lives here, off the ship, talking to orrery's HTTP API with a scoped key.
 
-Each integration is one directory with its own README. The first three are `mail`, an email reader, `home-assistant`, a Home Assistant client, and `telegram`, a bot that captures facts people type to it and delivers approved messages. Anyone can add one; the conventions below are what make them fit together.
+Each integration is one directory with its own README. The first three are `mail`, an email reader, `home-assistant`, a Home Assistant client, and `telegram`, a bot that captures facts people type to it; as of orrery version 34 the ship's own executor delivers approved messages, and the bot is the backfill and dry-run harness, and, for a ship older than 34, the sender. Anyone can add one; the conventions below are what make them fit together.
 
 ## How an integration talks to orrery
 
@@ -144,7 +144,7 @@ Actions: the analyst proposes `{"kind": "home", "title": "Turn the porch light o
 
 A Bot API client with long polling. People you map tell it facts in a short grammar, in a private chat or a group it sits in: `/at Route 9`, `/status stranded, waiting for a tow`, `/obs thing/subaru status broken down`, `/task Call the shop due 2026-09-18`. The sender's own body is the subject of `/at` and `/status`, so each person reports on themselves. Free text goes to the model with the chat's last four messages as context, and what it answers is held to rules that trace each fact to its message. Scope: kinds `person`, `place`, `thing`, `situation`; actions `task`, `message`; write.
 
-The same bot delivers approved `message` actions whose payload says `via` `telegram` and names a person it knows, and reports done or failed. Keep `message` off `auto`, so no text leaves without a human reading it. A bot sees only what is sent to it, unless you connect it to your account with Telegram Business (Premium), which lets it read the private chats you pick as they arrive; groups need the bot as a member.
+As of orrery version 34 the ship's own executor delivers approved `message` actions whose payload says `via` `telegram` and names a person it knows, sending through the token on the Telegram card the moment the owner approves them and reporting done or failed; the bot is the backfill and dry-run harness, and, for a ship older than 34, the sender. Keep `message` off `auto`, so no text leaves without a human reading it. A bot sees only what is sent to it, unless you connect it to your account with Telegram Business (Premium), which lets it read the private chats you pick as they arrive; groups need the bot as a member.
 
 ## More sources worth writing
 
