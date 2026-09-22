@@ -21,7 +21,7 @@ def fake_util(d, **kw):
 class Manifests(unittest.TestCase):
     def test_every_integration_names_scripts_it_has(self):
         utils = console.load_utils()
-        self.assertEqual([u['name'] for u in utils], ['home-assistant', 'mail', 'telegram'])
+        self.assertEqual([u['name'] for u in utils], ['generator', 'home-assistant', 'mail', 'telegram'])
         for u in utils:
             scripts = [u['run'][0]] + [j['cmd'][0] for j in u['jobs'].values()]
             for s in scripts:

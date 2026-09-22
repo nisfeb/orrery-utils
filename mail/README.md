@@ -84,9 +84,7 @@ Copy `config.example.json` to `config.json` (git ignores it) and fill it in. Sec
 }
 ```
 
-A folder the reader has no cursor for, because it is new to `folders` or the server renumbered it, starts after its newest message on its first run and is read from there on; its past is a backfill's (`--since`, `--months`), so adding an archive folder never sends years of mail through the model. `folders` is read in order and each folder keeps its own cursor in `state.json` under its own name, so they
-advance apart and a folder added later starts at its newest message without disturbing the others. `folder`
-is the fallback when `folders` is absent. A folder that cannot be opened is named on stderr and skipped, so
+A folder the reader has no cursor for, because it is new to `folders` or the server renumbered it, starts after its newest message on its first run and is read from there on; its past is a backfill's (`--since`, `--months`), so adding an archive folder never sends years of mail through the model. `folders` is read in order and each folder keeps its own cursor in `state.json` under its own name, so they advance apart and a folder added later starts at its newest message without disturbing the others. `folder` is the fallback when `folders` is absent. A folder that cannot be opened is named on stderr and skipped, so
 one wrong name does not stop the run.
 
 IMAP over TLS with a password or an app password. Providers that only allow OAuth need a bridge or an app password; that is outside this reader.

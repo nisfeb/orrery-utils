@@ -1,8 +1,22 @@
 # orrery-utils
 
-Clients that feed [orrery](https://github.com/nisfeb/orrery) from outside Urbit, and act on what it proposes. Orrery keeps the model of your world on your ship and runs no AI. Everything that reads a mailbox, a calendar, a house or a phone lives here, off the ship, talking to orrery's HTTP API with a scoped key.
+The companion toolkit to [orrery](https://github.com/nisfeb/orrery), an Urbit app that keeps a model of your world on your ship and runs no AI itself. Everything that reads a mailbox, a house or a chat, and everything that calls a model, lives here, off the ship, talking to orrery's HTTP API with a scoped key. Python 3, standard library only, no packages to install.
 
-Each integration is one directory with its own README. The first three are `mail`, an email reader, `home-assistant`, a Home Assistant client, and `telegram`, a bot that captures facts people type to it; as of orrery version 34 the ship's own executor delivers approved messages, and the bot is the backfill and dry-run harness, and, for a ship older than 34, the sender. Anyone can add one; the conventions below are what make them fit together.
+## What is here
+
+| directory | what it is | run it with |
+|---|---|---|
+| `common/` | the shared prompts (`analyst-prompt.md`, `generator-prompt.md`, `refine-prompt.md`, `brief-prompt.md`), `analyze.py`, the analyst every reader calls, and `reconcile.py`, the cleanup passes | `cd common && python3 -m unittest`; `python3 reconcile.py --help` |
+| `telegram/` | the Telegram bot: a backfill over a Telegram Desktop export, a dry-run harness for the gate and the model, and a reader and sender for a ship older than orrery 34 (newer ships read and send Telegram themselves) | `python3 bot.py --config config.json`; `python3 backfill.py --export result.json` |
+| `mail/` | an IMAP reader: rules first, then the model, for what mail says about the world | `python3 reader.py --config config.json` |
+| `home-assistant/` | a Home Assistant client, both directions: presence, locks and appliances in, approved `home` actions out | `python3 client.py --config config.json --loop 60` |
+| `generator/` | the action generator's bench and dry run: the same state to several models, side by side, with what each cost | `python3 bench.py --config config.json --models a,b` |
+| `console.py` | a terminal console that runs the integrations as systemd user units | `python3 console.py` |
+| `docs/writing-a-client.md` | the rules a client follows so that it does not fight the ship | read it before writing one |
+
+Three of the prompts in `common/` are mirrored byte for byte inside orrery itself (`analyst-prompt.md`, `generator-prompt.md`, `refine-prompt.md`), and orrery's `scripts/prompt-drift.py` holds the two copies together; a change to one of those files needs the same change there.
+
+Each integration is one directory with its own README, a `config.example.json` with no secrets in it, a fixture (sample input and the exact batch it produces), tests, and a `util.json` the console reads. Anyone can add one; the conventions below are what make them fit together.
 
 ## How an integration talks to orrery
 
@@ -105,7 +119,7 @@ The claim is a ten minute lease. A claimed action leaves the `approved` list but
 
 The `by` on what you write is the key's identity. Name keys after the integration and where it runs.
 
-## The first integrations
+## The integrations
 
 ### mail: an email reader
 
@@ -144,7 +158,7 @@ Actions: the analyst proposes `{"kind": "home", "title": "Turn the porch light o
 
 A Bot API client with long polling. People you map tell it facts in a short grammar, in a private chat or a group it sits in: `/at Route 9`, `/status stranded, waiting for a tow`, `/obs thing/subaru status broken down`, `/task Call the shop due 2026-09-18`. The sender's own body is the subject of `/at` and `/status`, so each person reports on themselves. Free text goes to the model with the chat's last four messages as context, and what it answers is held to rules that trace each fact to its message. Scope: kinds `person`, `place`, `thing`, `situation`; actions `task`, `message`; write.
 
-As of orrery version 34 the ship's own executor delivers approved `message` actions whose payload says `via` `telegram` and names a person it knows, sending through the token on the Telegram card the moment the owner approves them and reporting done or failed; the bot is the backfill and dry-run harness, and, for a ship older than 34, the sender. Keep `message` off `auto`, so no text leaves without a human reading it. A bot sees only what is sent to it, unless you connect it to your account with Telegram Business (Premium), which lets it read the private chats you pick as they arrive; groups need the bot as a member.
+From orrery version 29 the ship reads Telegram itself through a webhook, and from version 34 it sends: an approved `message` action whose payload says `via` `telegram` goes out through the token on the ship's Telegram card the moment the owner approves it. On such a ship the bot is the backfill (`backfill.py`, for what came before any reader was connected) and the dry-run harness, and it must not poll beside the webhook, which Telegram enforces by answering the long poll with 409. On an older ship it is the reader and the sender. Keep `message` off `auto`, so no text leaves without a human reading it. A bot sees only what is sent to it, unless you connect it to your account with Telegram Business (Premium), which lets it read the private chats you pick as they arrive; groups need the bot as a member.
 
 ## More sources worth writing
 
@@ -186,7 +200,9 @@ Any secret may sit in its config file, which is git-ignored: `api_key` in the mo
 
 ## The action generator
 
-`generator/run.py` is the analyst the spec calls the larger model: it reads the state view and the recent decisions with a read-only key, hands them to a frontier model with `common/generator-prompt.md`, validates every proposal against the schema (the action kinds, the payload shape per kind, the bodies named) and against what is open or was already done or dismissed, and files what survives with `POST /act`. The owner approves or dismisses on the page; the executors deliver. An approved task also shows up in the calendar's Tasks view: the calendar client mirrors it there and ticks it back, as rule 11 of `docs/writing-a-client.md` says, and never reads it back in as an event; the generator itself never touches the calendar. It runs with `--dry-run` to see what it would file, `--no-model` to see the prompt it would send, once or on a timer. For the trial the policy's `auto` list is empty so every proposal waits for the owner.
+The generator is the model that reads the whole state back and proposes what to do about it: it is given the state view, the recent decisions with the owner's reasons, and the schema, and it answers with actions the ship validates against the schema (the action kinds, the payload shape per kind, the bodies named) and against what is open or was already decided. Orrery runs it on the ship, on every change, under a cooldown and a daily cap the owner sets on the page, with `common/generator-prompt.md` as its system prompt.
+
+`generator/` is the bench and the dry run for it. `run.py --no-model` prints the prompt a state produces, `run.py --dry-run` asks the model and prints what would be filed, and `bench.py` asks several models the same question from one blanked state, in parallel, and writes a report with the proposals, the notes and the cost side by side, so a prompt change or a new model can be judged before the ship is pointed at it. `run.py` without flags files what survives, for a ship that has no key of its own. The generator's README has the configuration, the key scope and what a pass costs.
 
 ## Associating what belongs together
 
@@ -229,8 +245,21 @@ A job runs as its own transient unit, `orrery-utils-<name>-job`, that stops the 
 1. Make a directory named after the source. Its README carries the mapping table (source field to body kind and attribute), the scope the key needs and why, the source kind and id form, what stays on the client, and how to run it.
 2. Add a config example with no secrets in it, and a fixture: one sample input and the exact batch it produces.
 3. Give it a dry-run flag that prints batches instead of sending them.
-4. Run it against a dev ship before a real one. Orrery's `docs/releasing.md` section 7 describes the fake ship and its cookie; `scripts/api-matrix.py` there shows every route being exercised.
+4. Run it against a dev ship before a real one. Orrery's `docs/releasing.md` describes the fake ship and its cookie; `scripts/api-matrix.py` there shows every route being exercised.
 5. Keep the raw data on the client, keep a cursor, and make replay harmless.
-6. Give it a `util.json` (below) so the console can run it, set its secrets and offer its jobs. It needs a mode that runs for ever (a loop that exits on trouble, for systemd to restart) or a single pass the console puts on a timer.
+6. Give it a `util.json` (above) so the console can run it, set its secrets and offer its jobs. It needs a mode that runs for ever (a loop that exits on trouble, for systemd to restart) or a single pass the console puts on a timer.
 
 Any language. The API is JSON over HTTP; a few dozen lines of Python with `requests` is a complete client. A shared library comes when two integrations need the same code, not before.
+
+## Development and tests
+
+Every directory has its own `unittest` suite, and none needs a ship, a model or a token: the analyst runs against `FakeModel`, the readers against their fixtures, the console against a temporary directory.
+
+```bash
+python3 -m unittest                              # the console
+for d in common generator mail telegram home-assistant; do (cd $d && python3 -m unittest); done
+```
+
+The tests in `common/` also check that the prompt files are what the code sends. After changing `analyst-prompt.md`, `generator-prompt.md` or `refine-prompt.md`, make the same change to the cord in orrery's `code/lib/orrery.hoon` and run `scripts/prompt-drift.py <path to this repo>/common` there.
+
+Prose in this repo, in the prompts and in what the prompts ask a model to write follows the same rules: no em dashes, no semicolons or colons joining independent clauses, simple direct sentences of varied length.

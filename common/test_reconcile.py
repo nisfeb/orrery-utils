@@ -32,10 +32,10 @@ STATE = {'me': 'person/me', 'bodies': [
     {'id': 'person/dq', 'kind': 'person', 'name': 'D. Quill', 'aliases': [], 'attrs': {'email': {'value': 'Dana@Example.com'}}, 'created': '2026-09-11T00:00:00Z'},
     {'id': 'org/state-farm', 'kind': 'org', 'name': 'State Farm', 'aliases': [], 'attrs': {}, 'created': '2026-09-10T00:00:00Z'},
     {'id': 'org/kim-lee', 'kind': 'org', 'name': 'Kim Lee', 'aliases': [], 'attrs': {}, 'created': '2026-09-10T00:00:00Z'},
-    sit('situation/' + UID, 'Robin- Pottery/Wheel', '2026-05-12T22:00:00Z', '2026-05-12T23:30:00Z', 'The studio', ['person/me']),
-    sit('situation/' + UID + '-1', 'Robin- Pottery/Wheel', '2026-05-19T22:00:00Z', '2026-05-19T23:30:00Z'),
-    sit('situation/' + UID + '-2', 'Robin- Pottery/Wheel'),
-    sit('situation/' + UID + '-3', 'Reminder: Robin- Pottery/Wheel'),
+    sit('situation/' + UID, 'Nora- Pottery/Wheel', '2026-05-12T22:00:00Z', '2026-05-12T23:30:00Z', 'The studio', ['person/me']),
+    sit('situation/' + UID + '-1', 'Nora- Pottery/Wheel', '2026-05-19T22:00:00Z', '2026-05-19T23:30:00Z'),
+    sit('situation/' + UID + '-2', 'Nora- Pottery/Wheel'),
+    sit('situation/' + UID + '-3', 'Reminder: Nora- Pottery/Wheel'),
     sit('situation/' + UID2, 'Pottery', '2026-05-05T22:00:00Z', '2026-05-05T23:30:00Z'),
     sit('situation/' + UID2 + '-1', 'Pottery'),
     sit('situation/' + UID2 + '-2', 'Pottery'),
@@ -54,26 +54,26 @@ class Activities(unittest.TestCase):
         self.plans = {p['activity']['id']: p for p in reconcile.plan_activities(STATE)}
 
     def test_two_series_from_calendar_ids_and_one_plain_title(self):
-        self.assertEqual(sorted(self.plans), ['activity/pottery', 'activity/robin-pottery-wheel'])
+        self.assertEqual(sorted(self.plans), ['activity/nora-pottery-wheel', 'activity/pottery'])
         pottery = self.plans['activity/pottery']
         self.assertEqual(pottery['delete'], sorted(['situation/' + UID2, 'situation/' + UID2 + '-1', 'situation/' + UID2 + '-2', 'situation/plain-1']))
         self.assertEqual(pottery['occurrences'], 2)
         self.assertIn(UID2, pottery['activity']['aliases'])
 
     def test_activity_rows(self):
-        robin = self.plans['activity/robin-pottery-wheel']
-        self.assertEqual(robin['activity']['name'], 'Robin- Pottery/Wheel')
-        self.assertIn('Reminder: Robin- Pottery/Wheel', robin['activity']['aliases'])
-        rows = {(o['attr'], o.get('value') if not isinstance(o.get('value'), dict) else o['value']['ref']): o for o in robin['observations']}
+        nora = self.plans['activity/nora-pottery-wheel']
+        self.assertEqual(nora['activity']['name'], 'Nora- Pottery/Wheel')
+        self.assertIn('Reminder: Nora- Pottery/Wheel', nora['activity']['aliases'])
+        rows = {(o['attr'], o.get('value') if not isinstance(o.get('value'), dict) else o['value']['ref']): o for o in nora['observations']}
         self.assertEqual(rows[('status', 'active')]['at'], '2026-05-12T22:00:00Z')
         self.assertEqual(rows[('location', 'The studio')]['source'], {'kind': 'reconcile', 'id': 'situation/' + UID})
         self.assertIn(('participants', 'person/me'), rows)
-        last = [o for o in robin['observations'] if o['attr'] == 'last']
+        last = [o for o in nora['observations'] if o['attr'] == 'last']
         self.assertEqual([(o['value'], o['at'], 'until' in o, o['source']['id']) for o in last],
                          [('2026-05-12T22:00:00Z', '2026-05-12T22:00:00Z', False, 'reconcile/situation/' + UID),
                           ('2026-05-19T22:00:00Z', '2026-05-19T22:00:00Z', False, 'reconcile/situation/' + UID + '-1')])
-        self.assertEqual([o for o in robin['observations'] if o['attr'] == 'next'], [])
-        self.assertEqual(len(robin['delete']), 4)
+        self.assertEqual([o for o in nora['observations'] if o['attr'] == 'next'], [])
+        self.assertEqual(len(nora['delete']), 4)
 
     def test_a_future_occurrence_is_next(self):
         state = {'bodies': [sit('situation/x-' + str(i), 'Choir', '2099-01-0%dT18:00:00Z' % (i + 1), '2099-01-0%dT19:00:00Z' % (i + 1)) for i in range(3)]}

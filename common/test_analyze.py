@@ -117,8 +117,8 @@ class Association(unittest.TestCase):
         n = analyze.normalize_title
         self.assertEqual(n('Reminder: Pottery @ Thu May 14, 2026 6:00pm'), 'pottery')
         self.assertEqual(n('Pottery'), 'pottery')
-        self.assertEqual(n('Robin- Pottery/Wheel'), 'robin pottery/wheel')
-        self.assertNotEqual(n('Robin- Pottery/Wheel'), n('Pottery'))
+        self.assertEqual(n('Nora- Pottery/Wheel'), 'nora pottery/wheel')
+        self.assertNotEqual(n('Nora- Pottery/Wheel'), n('Pottery'))
         self.assertEqual(n('Invitation: Book Club 2026-05-16'), 'book club')
 
     def test_same_person(self):
@@ -495,7 +495,7 @@ class CalendarActions(unittest.TestCase):
     STATE = {'me': 'person/me', 'bodies': [{'id': 'person/me', 'name': 'me', 'aliases': []}, {'id': 'person/sarah', 'name': 'Sarah', 'aliases': []}],
              'schema': {'kinds': {'person': {'attrs': ['status']}}, 'actions': ['task', 'note', 'message', 'home', 'calendar'],
                         'payloads': {'calendar': {'title': 'required', 'starts': 'required: ISO 8601 UTC', 'ends': 'optional: ISO 8601 UTC', 'location': 'optional'},
-                                     'message': {'via': 'required: one of telegram, mail, chat', 'to': 'required: the body id of the person, e.g. person/alice', 'text': 'required: the message, short, in the owner\'s own voice'},
+                                     'message': {'via': 'required: one of telegram, mail, chat', 'to': 'required: the body id of the person, e.g. person/sarah', 'text': 'required: the message, short, in the owner\'s own voice'},
                                      'home': {'service': 'required', 'entity_id': 'required'}}}}
 
     def test_kinds_and_shapes_come_from_the_schema(self):

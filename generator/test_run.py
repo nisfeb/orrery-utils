@@ -137,7 +137,7 @@ class Answers(unittest.TestCase):
     def test_restates(self):
         self.assertTrue(run.restates('Go to Ballet', 'Ballet'))
         self.assertTrue(run.restates('Attend the Nutcracker rehearsal', 'Nutcracker rehearsal'))
-        self.assertFalse(run.restates("Plan Milo's birthday", 'Milo Birthday'))
+        self.assertFalse(run.restates("Plan Felix's birthday", 'Felix Birthday'))
         self.assertFalse(run.restates("Pack for the day at Grandma and Grandaddy's", "Grandma and Grandaddy's"))
         self.assertFalse(run.restates('Ballet', ''))
 

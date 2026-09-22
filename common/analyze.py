@@ -323,7 +323,7 @@ GATE_QUESTION = {'worth_reading': {
 #  how many bodies go to the decision model at most: a guard, not a budget.
 #  Sending every body measured the same answer time as eighty, at about eight
 #  cents more per thousand messages, and a cut at eighty could drop the one
-#  person a message is about (Talon, 2026-09-19).
+#  person a message is about (measured on a phone client, 2026-09-19).
 MAX_KNOWN = 1000
 KIND_RANK = {'person': 1, 'activity': 2, 'place': 2, 'org': 2, 'situation': 3, 'thing': 4}
 
@@ -438,7 +438,7 @@ def relevance_pick(decider, window, context, group=RELEVANCE_GROUP):
     question per body, in groups, each call carrying the whole ranked list of
     bodies. The list is what makes it work: without it the bodies a message
     was plainly about scored with the noise, around 0.3; with it they scored
-    0.8 to 0.96 and the rest 0.06 or less (Talon, 173 bodies, 2026-09-19).
+    0.8 to 0.96 and the rest 0.06 or less (a phone client, 173 bodies, 2026-09-19).
     Answers {'scores': {id: p}, 'cost': usd, 'failed': bool, 'note': str}; a
     failed call scores nothing, and the caller shows everything."""
     st = gate_state(window, context)
@@ -550,7 +550,7 @@ READER_ACTIONS = ('task', 'calendar', 'message')
 
 
 #  a day, a date or an hour in a message's words: what a plan fixed in time
-#  has (Talon's rule, 59d08558)
+#  has (the reference client's rule)
 FIXES_A_TIME = re.compile(
     r"\b(\d{1,2}(:\d{2})? ?(am|pm)|\d{1,2}:\d{2}|at \d{1,2}|noon|midnight|tonight|tomorrow|today|"
     r"(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)(day)?|"
@@ -732,7 +732,7 @@ DATEISH_RE = re.compile(r'\b(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\b|\b\d{1,2}(?:
 def normalize_title(text):
     """A title with its noise stripped: prefixes like Reminder:, dates, times
     and weekdays, punctuation and case. "Reminder: Pottery @ Thu May 14, 6:00pm"
-    and "Pottery" normalise to the same key; "Robin- Pottery/Wheel" stays its own."""
+    and "Pottery" normalise to the same key; "Nora- Pottery/Wheel" stays its own."""
     t = NOISE_RE.sub('', str(text or '').strip())
     t = NOISE_RE.sub('', t)
     t = DATEISH_RE.sub(' ', t)

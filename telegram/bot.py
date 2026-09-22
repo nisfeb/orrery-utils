@@ -375,7 +375,7 @@ def context_for(ship):
 
 
 #  a small model writes what it remembers as readily as what it read, so a chat
-#  fact has to be traceable to its message; the same rules as Talon's extractor
+#  fact has to be traceable to its message; the same rules as a phone client's extractor
 WORD_RE = re.compile(r"[a-z0-9']+")
 
 
@@ -550,7 +550,7 @@ CLAIM_PAUSE = 0.2
 #  into a grubbery app costs the ship about a second of its single
 #  thread, and the long poll returns every thirty seconds whether or not
 #  a message came, so asking on every pass was a heartbeat of requests
-#  (a fifth of ricsul's busy time, measured 2026-09-20). An approved
+#  (a fifth of the ship's busy time, measured 2026-09-20). An approved
 #  message now goes out within this many seconds instead.
 EXECUTE_EVERY = 300
 
