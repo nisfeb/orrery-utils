@@ -595,12 +595,27 @@ def one_of(shape_value):
     return [w for w in re.split(r'[,\s]+|\bor\b', m.group(1)) if w] if m else []
 
 
+def owner_note(s, limit):
+    """A schema string in the owner's voice, normalised for the prompt the way
+    the ship does it: runs of whitespace (spaces, tabs, newlines) squeezed to
+    one space, trimmed, then cut to `limit` bytes on a UTF-8 boundary (a split
+    trailing character is dropped)."""
+    s = re.sub(r'\s+', ' ', str(s or '')).strip()
+    return s.encode('utf-8')[:limit].decode('utf-8', 'ignore')
+
+
 def context_from_state(state, channel, action_kinds=None):
     """The context block from a state view: the bodies (id, name, aliases),
     the schema's attribute names per kind, the action kinds the key may
     propose (READER_ACTIONS, as far as the schema lists them) with their
     payload shapes, and person/me."""
     schema = (state or {}).get('schema') or {}
+    #  the owner's voice rules and standing preferences, read and capped the way
+    #  the ship's reader prompt reads them (style <= 1000 bytes; each preference
+    #  <= 300 bytes, empties dropped, at most 30 kept).
+    style = owner_note(schema.get('style'), 1000)
+    prefs_raw = schema.get('preferences')
+    preferences = [p for p in (owner_note(x, 300) for x in (prefs_raw if isinstance(prefs_raw, list) else [])) if p][:30]
     if action_kinds is None:
         listed = [str(k) for k in (schema.get('actions') or [])]
         action_kinds = [k for k in READER_ACTIONS if k in listed] or ['task']
@@ -622,7 +637,8 @@ def context_from_state(state, channel, action_kinds=None):
             if isinstance(spec.get('notes'), dict):
                 notes[kind] = {str(k): str(v) for k, v in spec['notes'].items() if isinstance(v, str)}
     return {'bodies': bodies[:MAX_BODIES_IN_CONTEXT], 'attrs': attrs, 'notes': notes, 'me': (state or {}).get('me', 'person/me'),
-            'channel': channel, 'action_kinds': list(action_kinds), 'payloads': payloads}
+            'channel': channel, 'action_kinds': list(action_kinds), 'payloads': payloads,
+            'style': style, 'preferences': preferences}
 
 
 def local_time(at):
@@ -639,6 +655,12 @@ def prompt(messages, context, shown=None):
     """The user prompt. shown, when given, is the bodies the model is
     listed (a relevance pick); validation still goes by every body."""
     lines = ['Channel: ' + str(context.get('channel', '')), 'The owner is ' + str(context.get('me', 'person/me')) + '.']
+    if context.get('style'):
+        lines.append("The owner's style for text in their voice: " + context['style'])
+    if context.get('preferences'):
+        lines.append("The owner's standing preferences:")
+        for pref in context['preferences']:
+            lines.append('  - ' + pref)
     if context.get('attrs'):
         lines.append('Attribute names by kind:')
         for kind, names in context['attrs'].items():

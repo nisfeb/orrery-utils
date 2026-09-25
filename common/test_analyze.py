@@ -262,6 +262,32 @@ class Answers(unittest.TestCase):
         self.assertEqual(c['attrs'], {'person': ['status']})
         self.assertEqual((c['channel'], c['action_kinds']), ('mail', ['task']))
 
+    def test_owner_style_and_preferences(self):
+        state = {'me': 'person/me', 'bodies': [],
+                 'schema': {'kinds': {},
+                            'style': '  warm\tbut\n brief  ',
+                            'preferences': ['no  meetings\nbefore 10', '', '   ', 'x' * 400]
+                                           + ['p%d' % i for i in range(40)]}}
+        c = analyze.context_from_state(state, 'mail')
+        #  whitespace squeezed and trimmed
+        self.assertEqual(c['style'], 'warm but brief')
+        #  empties dropped, each capped to 300 bytes, at most 30 kept
+        self.assertEqual(c['preferences'][0], 'no meetings before 10')
+        self.assertEqual(len(c['preferences'][1]), 300)
+        self.assertEqual(len(c['preferences']), 30)
+        #  style capped to 1000 bytes
+        self.assertEqual(len(analyze.context_from_state({'schema': {'style': 'a' * 1500}}, 'mail')['style']), 1000)
+        #  rendered right after the owner line, preferences as bullets
+        lines = analyze.prompt([{'id': 'm', 'at': '2026-09-19T12:00:00Z', 'who': 'person/me', 'text': 'x'}], c).split('\n')
+        i = lines.index('The owner is person/me.')
+        self.assertEqual(lines[i + 1], "The owner's style for text in their voice: warm but brief")
+        self.assertEqual(lines[i + 2], "The owner's standing preferences:")
+        self.assertEqual(lines[i + 3], '  - no meetings before 10')
+        #  absent when the schema carries neither
+        bare = analyze.prompt([], analyze.context_from_state({'schema': {}}, 'mail'))
+        self.assertNotIn('style for text', bare)
+        self.assertNotIn('standing preferences', bare)
+
 
 
 class Hosted(unittest.TestCase):
