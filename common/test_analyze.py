@@ -262,6 +262,41 @@ class Answers(unittest.TestCase):
         self.assertEqual(c['attrs'], {'person': ['status']})
         self.assertEqual((c['channel'], c['action_kinds']), ('mail', ['task']))
 
+    def test_owner_lessons(self):
+        state = {'me': 'person/me', 'bodies': [], 'schema': {'kinds': {'person': {'attrs': ['status']}},
+                                                             'preferences': ['short']}}
+        corrections = [{'subject': 'person/al', 'attr': 'status', 'value': 'away', 'why': ' typo \n here ' + 'w' * 300}] \
+            + [{'subject': 'thing/%d' % i, 'attr': 'a', 'value': i, 'why': ''} for i in range(40)]
+        dismissed = [{'kind': 'task', 'title': 'call al', 'note': ' just  the\tevent ', 'by': 'telegram', 'status': 'dismissed', 'proposed': '2026-09-20T00:00:00Z'},
+                     {'kind': 'task', 'title': 'newer', 'note': 'no', 'by': 'telegram', 'status': 'dismissed', 'proposed': '2026-09-25T00:00:00Z'},
+                     {'kind': 'task', 'title': 'no reason', 'note': '  ', 'by': 'telegram', 'status': 'dismissed', 'proposed': '2026-09-26T00:00:00Z'},
+                     {'kind': 'task', 'title': 'not mine', 'note': 'x', 'by': 'mail', 'status': 'dismissed', 'proposed': '2026-09-26T00:00:00Z'}] \
+            + [{'kind': 'note', 'title': 'old %d' % i, 'note': 'r', 'by': 'telegram', 'status': 'dismissed', 'proposed': '2026-01-%02dT00:00:00Z' % (i + 1)} for i in range(25)]
+        c = analyze.context_from_state(state, 'telegram', corrections=corrections, dismissed=dismissed)
+        #  corrections: newest 30 as given, why squeezed, cut to 200 bytes and shown only when non-empty
+        self.assertEqual(len(c['struck']), 30)
+        self.assertTrue(c['struck'][0].startswith('person/al status = away (typo here www'))
+        self.assertEqual(len(c['struck'][0]), len('person/al status = away (') + 200 + 1)
+        self.assertEqual(c['struck'][1], 'thing/0 a = 0')
+        #  dismissals: this reader's, with a reason, newest 20 by proposed time
+        self.assertEqual(len(c['dismissed']), 20)
+        self.assertEqual(c['dismissed'][0], 'task | newer | no')
+        self.assertEqual(c['dismissed'][1], 'task | call al | just the event')
+        self.assertNotIn('task | not mine | x', c['dismissed'])
+        self.assertFalse(any('no reason' in d for d in c['dismissed']))
+        #  rendered after the preferences and before the schema
+        lines = analyze.prompt([], c).split('\n')
+        i = lines.index('  - short')
+        self.assertEqual(lines[i + 1], 'The owner struck these facts as wrong; never write them again:')
+        self.assertEqual(lines[i + 2], '  ' + c['struck'][0])
+        j = lines.index('The owner dismissed these of your proposals, with the reason; do not propose their like:')
+        self.assertEqual(lines[j + 1], '  task | newer | no')
+        self.assertEqual(lines[j + 21], 'Attribute names by kind:')
+        #  absent when there are none, and when the caller read nothing
+        bare = analyze.prompt([], analyze.context_from_state(state, 'telegram'))
+        self.assertNotIn('struck these facts', bare)
+        self.assertNotIn('dismissed these', bare)
+
     def test_owner_style_and_preferences(self):
         state = {'me': 'person/me', 'bodies': [],
                  'schema': {'kinds': {},

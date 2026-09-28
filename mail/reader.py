@@ -85,6 +85,15 @@ class Ship:
         code, d = self.call('GET', '/state')
         return d if code == 200 and isinstance(d, dict) else {}
 
+    def actions(self, status):
+        code, d = self.call('GET', '/actions?status=' + status)
+        return d if code == 200 and isinstance(d, list) else []
+
+    def corrections(self):
+        """The facts the owner struck, newest first; none on a ship without the route."""
+        code, d = self.call('GET', '/corrections')
+        return d if code == 200 and isinstance(d, list) else []
+
     def observe(self, bodies, observations):
         return self.call('POST', '/observe', {'bodies': bodies, 'observations': observations})
 
@@ -108,6 +117,12 @@ class NoShip:
 
     def state(self):
         return self.reads.state() if self.reads else {}
+
+    def actions(self, status):
+        return self.reads.actions(status) if self.reads else []
+
+    def corrections(self):
+        return self.reads.corrections() if self.reads else []
 
     def observe(self, bodies, observations):
         print(json.dumps({'observe': {'bodies': bodies, 'observations': observations}}, indent=1))
@@ -523,7 +538,10 @@ def context_for(ship):
     global CONTEXT
     CONTEXT_USES[0] += 1
     if CONTEXT is None or CONTEXT_USES[0] % CONTEXT_EVERY == 0:
-        CONTEXT = analyze.context_from_state(ship.state(), SOURCE)
+        #  with the owner's lessons: the facts they struck and the proposals
+        #  of this reader's they dismissed with a reason
+        CONTEXT = analyze.context_from_state(ship.state(), SOURCE, corrections=ship.corrections(),
+                                             dismissed=ship.actions('dismissed'))
     return CONTEXT
 
 

@@ -105,6 +105,11 @@ class Ship:
         code, d = request(self.api + '/actions?status=' + status, headers=self.h)
         return d if code == 200 and isinstance(d, list) else []
 
+    def corrections(self):
+        """The facts the owner struck, newest first; none on a ship without the route."""
+        code, d = request(self.api + '/corrections', headers=self.h)
+        return d if code == 200 and isinstance(d, list) else []
+
     def move(self, aid, status, note=''):
         body = {'status': status}
         if note:
@@ -129,6 +134,9 @@ class NoShip:
 
     def state(self):
         return self.reads.state() if self.reads else {}
+
+    def corrections(self):
+        return self.reads.corrections() if self.reads else []
 
     def observe(self, bodies, observations):
         print(json.dumps({'observe': {'bodies': bodies, 'observations': observations}}, indent=1))
@@ -370,7 +378,11 @@ def context_for(ship):
     and read again every CONTEXT_TTL seconds."""
     global CONTEXT, CONTEXT_AT
     if CONTEXT is None or time.time() - CONTEXT_AT > CONTEXT_TTL:
-        CONTEXT, CONTEXT_AT = analyze.context_from_state(ship.state(), SOURCE), time.time()
+        #  with the owner's lessons: the facts they struck and the proposals
+        #  of this reader's they dismissed with a reason
+        CONTEXT = analyze.context_from_state(ship.state(), SOURCE, corrections=ship.corrections(),
+                                             dismissed=ship.actions('dismissed'))
+        CONTEXT_AT = time.time()
     return CONTEXT
 
 

@@ -604,11 +604,38 @@ def owner_note(s, limit):
     return s.encode('utf-8')[:limit].decode('utf-8', 'ignore')
 
 
-def context_from_state(state, channel, action_kinds=None):
+def lessons(corrections, dismissed, by):
+    """The owner's lessons for a reader, read the way the ship's reader prompt
+    reads them. struck: the facts the owner struck (GET /api/corrections,
+    newest first), the newest 30, as `subject attr = value`, with ` (why)`
+    only when the why is non-empty (squeezed, cut to 200 bytes). dismissed:
+    this reader's own proposals (by) the owner dismissed with a reason
+    (GET /api/actions?status=dismissed), the newest 20 by proposed time, as
+    `kind | title | reason`, the reason squeezed and cut to 200 bytes."""
+    def squeeze(x):
+        return ' '.join(str(x if x is not None else '').split())
+    struck = []
+    for c in (corrections if isinstance(corrections, list) else [])[:30]:
+        if not isinstance(c, dict):
+            continue
+        why = owner_note(c.get('why'), 200)
+        struck.append('%s %s = %s%s' % (squeeze(c.get('subject')), squeeze(c.get('attr')), squeeze(c.get('value')),
+                                        ' (%s)' % why if why else ''))
+    mine = [a for a in (dismissed if isinstance(dismissed, list) else [])
+            if isinstance(a, dict) and a.get('status', 'dismissed') == 'dismissed' and a.get('by') == by
+            and owner_note(a.get('note'), 200)]
+    mine.sort(key=lambda a: str(a.get('proposed') or ''), reverse=True)
+    gone = ['%s | %s | %s' % (squeeze(a.get('kind')), squeeze(a.get('title')), owner_note(a.get('note'), 200))
+            for a in mine[:20]]
+    return {'struck': struck, 'dismissed': gone}
+
+
+def context_from_state(state, channel, action_kinds=None, corrections=None, dismissed=None):
     """The context block from a state view: the bodies (id, name, aliases),
     the schema's attribute names per kind, the action kinds the key may
     propose (READER_ACTIONS, as far as the schema lists them) with their
-    payload shapes, and person/me."""
+    payload shapes, person/me, and, when the caller read them, the owner's
+    lessons (+lessons): corrections and this channel's dismissed proposals."""
     schema = (state or {}).get('schema') or {}
     #  the owner's voice rules and standing preferences, read and capped the way
     #  the ship's reader prompt reads them (style <= 1000 bytes; each preference
@@ -638,7 +665,7 @@ def context_from_state(state, channel, action_kinds=None):
                 notes[kind] = {str(k): str(v) for k, v in spec['notes'].items() if isinstance(v, str)}
     return {'bodies': bodies[:MAX_BODIES_IN_CONTEXT], 'attrs': attrs, 'notes': notes, 'me': (state or {}).get('me', 'person/me'),
             'channel': channel, 'action_kinds': list(action_kinds), 'payloads': payloads,
-            'style': style, 'preferences': preferences}
+            'style': style, 'preferences': preferences, **lessons(corrections, dismissed, channel)}
 
 
 def local_time(at):
@@ -661,6 +688,16 @@ def prompt(messages, context, shown=None):
         lines.append("The owner's standing preferences:")
         for pref in context['preferences']:
             lines.append('  - ' + pref)
+    #  the lessons, right after the owner's taste and before the schema, as
+    #  the ship's reader prompt has them
+    if context.get('struck'):
+        lines.append('The owner struck these facts as wrong; never write them again:')
+        for line in context['struck']:
+            lines.append('  ' + line)
+    if context.get('dismissed'):
+        lines.append('The owner dismissed these of your proposals, with the reason; do not propose their like:')
+        for line in context['dismissed']:
+            lines.append('  ' + line)
     if context.get('attrs'):
         lines.append('Attribute names by kind:')
         for kind, names in context['attrs'].items():
