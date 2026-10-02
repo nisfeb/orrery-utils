@@ -1,0 +1,324 @@
+{
+ "me": "person/me",
+ "rev": 1,
+ "at": "2026-10-05T14:00:00Z",
+ "bodies": [
+  {
+   "id": "person/me",
+   "kind": "person",
+   "name": "Noor",
+   "aliases": [],
+   "attrs": {
+    "timezone": {
+     "value": "Europe/Amsterdam"
+    }
+   }
+  },
+  {
+   "id": "person/pieter",
+   "kind": "person",
+   "name": "Pieter",
+   "aliases": [
+    "landlord"
+   ],
+   "attrs": {
+    "relationship": {
+     "value": "landlord"
+    },
+    "telegram": {
+     "value": "7001"
+    }
+   }
+  },
+  {
+   "id": "person/dr-okafor",
+   "kind": "person",
+   "name": "Dr. Okafor",
+   "aliases": [
+    "supervisor"
+   ],
+   "attrs": {
+    "relationship": {
+     "value": "thesis supervisor"
+    },
+    "telegram": {
+     "value": "7002"
+    }
+   }
+  },
+  {
+   "id": "org/immigration-office",
+   "kind": "org",
+   "name": "Immigration office",
+   "aliases": [],
+   "attrs": {}
+  },
+  {
+   "id": "org/university-library",
+   "kind": "org",
+   "name": "University library",
+   "aliases": [],
+   "attrs": {}
+  },
+  {
+   "id": "thing/boiler",
+   "kind": "thing",
+   "name": "the boiler",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "no hot water"
+    },
+    "location": {
+     "value": "the flat"
+    }
+   }
+  },
+  {
+   "id": "thing/residence-permit",
+   "kind": "thing",
+   "name": "residence permit",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "renewed until 2028, card ready for collection"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-09-24-boiler",
+   "kind": "situation",
+   "name": "Boiler broken",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-09-24T08:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     },
+     {
+      "value": {
+       "ref": "person/pieter"
+      }
+     }
+    ],
+    "needs": {
+     "value": "a plumber comes and the hot water works"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "person/pieter"
+     }
+    },
+    "summary": {
+     "value": "Pieter said on Sep 26 he would send a plumber that week; nothing since"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-08-30-permit-renewal",
+   "kind": "situation",
+   "name": "Residence permit renewal",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-08-30T09:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     }
+    ],
+    "needs": {
+     "value": "the immigration office approves the renewal"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "org/immigration-office"
+     }
+    },
+    "summary": {
+     "value": "the approval letter arrived on Oct 3"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-10-01-chapter-three",
+   "kind": "situation",
+   "name": "Chapter three draft",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-10-01T09:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     },
+     {
+      "value": {
+       "ref": "person/dr-okafor"
+      }
+     }
+    ],
+    "needs": {
+     "value": "the draft is sent to Dr. Okafor by Oct 9"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "person/me"
+     }
+    },
+    "summary": {
+     "value": "Dr. Okafor asked for the draft by Friday Oct 9"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-10-04-book-request",
+   "kind": "situation",
+   "name": "Interlibrary loan request",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-10-04T10:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     }
+    ],
+    "needs": {
+     "value": "the library says the book has arrived"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "org/university-library"
+     }
+    },
+    "summary": {
+     "value": "requested yesterday; the library says five working days"
+    }
+   }
+  }
+ ],
+ "situations": [
+  "situation/2026-09-24-boiler",
+  "situation/2026-08-30-permit-renewal",
+  "situation/2026-10-01-chapter-three",
+  "situation/2026-10-04-book-request"
+ ],
+ "actions": [],
+ "schema": {
+  "kinds": {
+   "situation": {
+    "attrs": [
+     "status",
+     "participants",
+     "location",
+     "starts",
+     "ends",
+     "started",
+     "ended",
+     "summary",
+     "needs",
+     "waiting-on",
+     "outcome"
+    ]
+   }
+  },
+  "multi": [
+   "participants"
+  ],
+  "actions": [
+   "task",
+   "note",
+   "message",
+   "calendar",
+   "correct",
+   "fact",
+   "merge",
+   "preference",
+   "resolve"
+  ],
+  "payloads": {
+   "task": {
+    "notes": "optional: what to do, in a sentence"
+   },
+   "note": {
+    "text": "required: the note for the owner"
+   },
+   "message": {
+    "via": "required: one of chat, telegram, mail",
+    "to": "required: the body id of the person",
+    "text": "required: the message, short, in the owner's own voice"
+   },
+   "calendar": {
+    "title": "required",
+    "starts": "required: ISO 8601 UTC",
+    "ends": "optional: ISO 8601 UTC",
+    "location": "optional"
+   },
+   "correct": {
+    "subject": "required: the body id the wrong fact is about",
+    "attr": "required",
+    "value": "required: the wrong value as the state shows it",
+    "why": "optional"
+   },
+   "fact": {
+    "subject": "required: the body id",
+    "attr": "required",
+    "value": "required"
+   },
+   "merge": {
+    "from": "required: the body id folded away",
+    "into": "required: the body id kept"
+   },
+   "preference": {
+    "text": "required: the standing rule, in the owner's words"
+   },
+   "resolve": {
+    "situation": "required: the id of the situation that is over",
+    "outcome": "required: how it ended, one short sentence",
+    "evidence": "optional: the fact that shows it"
+   }
+  },
+  "style": "",
+  "preferences": []
+ },
+ "expect": {
+  "situation/2026-09-24-boiler": [
+   "message",
+   "task"
+  ],
+  "situation/2026-08-30-permit-renewal": [
+   "resolve"
+  ],
+  "situation/2026-10-01-chapter-three": [
+   "task"
+  ],
+  "situation/2026-10-04-book-request": []
+ }
+}

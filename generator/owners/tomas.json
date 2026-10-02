@@ -1,0 +1,312 @@
+{
+ "me": "person/me",
+ "rev": 1,
+ "at": "2026-10-05T14:00:00Z",
+ "bodies": [
+  {
+   "id": "person/me",
+   "kind": "person",
+   "name": "Tomás",
+   "aliases": [],
+   "attrs": {
+    "timezone": {
+     "value": "America/Chicago"
+    }
+   }
+  },
+  {
+   "id": "person/lena",
+   "kind": "person",
+   "name": "Lena",
+   "aliases": [
+    "Harbor Cafe"
+   ],
+   "attrs": {
+    "relationship": {
+     "value": "client, owner of Harbor Cafe"
+    },
+    "telegram": {
+     "value": "8101"
+    }
+   }
+  },
+  {
+   "id": "org/city-permits",
+   "kind": "org",
+   "name": "City permits office",
+   "aliases": [],
+   "attrs": {}
+  },
+  {
+   "id": "org/timber-yard",
+   "kind": "org",
+   "name": "Dunmore Timber",
+   "aliases": [],
+   "attrs": {}
+  },
+  {
+   "id": "thing/invoice-114",
+   "kind": "thing",
+   "name": "invoice 114",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "unpaid, 2,300, due Sep 26"
+    }
+   }
+  },
+  {
+   "id": "thing/deck-permit",
+   "kind": "thing",
+   "name": "deck permit for the Alvarez job",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "approved Oct 2, permit D-4471"
+    }
+   }
+  },
+  {
+   "id": "thing/van",
+   "kind": "thing",
+   "name": "the van",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "inspection due Oct 15"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-09-12-invoice-114",
+   "kind": "situation",
+   "name": "Harbor Cafe invoice",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-09-12T15:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     },
+     {
+      "value": {
+       "ref": "person/lena"
+      }
+     }
+    ],
+    "needs": {
+     "value": "Harbor Cafe pays invoice 114"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "person/lena"
+     }
+    },
+    "summary": {
+     "value": "sent Sep 12, due Sep 26; a reminder went on Sep 28 and got no answer"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-09-18-deck-permit",
+   "kind": "situation",
+   "name": "Deck permit application",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-09-18T14:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     }
+    ],
+    "needs": {
+     "value": "the city approves the deck permit"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "org/city-permits"
+     }
+    },
+    "summary": {
+     "value": "applied Sep 18"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-10-03-oak-order",
+   "kind": "situation",
+   "name": "Oak boards order",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-10-03T16:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     }
+    ],
+    "needs": {
+     "value": "the oak boards are delivered"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "org/timber-yard"
+     }
+    },
+    "summary": {
+     "value": "ordered Oct 3; the yard promised delivery on Oct 8"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-10-01-van-inspection",
+   "kind": "situation",
+   "name": "Van inspection",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-10-01T12:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     }
+    ],
+    "needs": {
+     "value": "the van passes inspection before Oct 15"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "person/me"
+     }
+    },
+    "summary": {
+     "value": "no appointment booked yet"
+    }
+   }
+  }
+ ],
+ "situations": [
+  "situation/2026-09-12-invoice-114",
+  "situation/2026-09-18-deck-permit",
+  "situation/2026-10-03-oak-order",
+  "situation/2026-10-01-van-inspection"
+ ],
+ "actions": [],
+ "schema": {
+  "kinds": {
+   "situation": {
+    "attrs": [
+     "status",
+     "participants",
+     "location",
+     "starts",
+     "ends",
+     "started",
+     "ended",
+     "summary",
+     "needs",
+     "waiting-on",
+     "outcome"
+    ]
+   }
+  },
+  "multi": [
+   "participants"
+  ],
+  "actions": [
+   "task",
+   "note",
+   "message",
+   "calendar",
+   "correct",
+   "fact",
+   "merge",
+   "preference",
+   "resolve"
+  ],
+  "payloads": {
+   "task": {
+    "notes": "optional: what to do, in a sentence"
+   },
+   "note": {
+    "text": "required: the note for the owner"
+   },
+   "message": {
+    "via": "required: one of chat, telegram, mail",
+    "to": "required: the body id of the person",
+    "text": "required: the message, short, in the owner's own voice"
+   },
+   "calendar": {
+    "title": "required",
+    "starts": "required: ISO 8601 UTC",
+    "ends": "optional: ISO 8601 UTC",
+    "location": "optional"
+   },
+   "correct": {
+    "subject": "required: the body id the wrong fact is about",
+    "attr": "required",
+    "value": "required: the wrong value as the state shows it",
+    "why": "optional"
+   },
+   "fact": {
+    "subject": "required: the body id",
+    "attr": "required",
+    "value": "required"
+   },
+   "merge": {
+    "from": "required: the body id folded away",
+    "into": "required: the body id kept"
+   },
+   "preference": {
+    "text": "required: the standing rule, in the owner's words"
+   },
+   "resolve": {
+    "situation": "required: the id of the situation that is over",
+    "outcome": "required: how it ended, one short sentence",
+    "evidence": "optional: the fact that shows it"
+   }
+  },
+  "style": "",
+  "preferences": []
+ },
+ "expect": {
+  "situation/2026-09-12-invoice-114": [
+   "message",
+   "task"
+  ],
+  "situation/2026-09-18-deck-permit": [
+   "resolve"
+  ],
+  "situation/2026-10-03-oak-order": [],
+  "situation/2026-10-01-van-inspection": [
+   "task",
+   "calendar"
+  ]
+ }
+}

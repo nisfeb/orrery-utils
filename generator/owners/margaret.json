@@ -1,0 +1,313 @@
+{
+ "me": "person/me",
+ "rev": 1,
+ "at": "2026-10-05T14:00:00Z",
+ "bodies": [
+  {
+   "id": "person/me",
+   "kind": "person",
+   "name": "Margaret",
+   "aliases": [],
+   "attrs": {
+    "timezone": {
+     "value": "Europe/London"
+    }
+   }
+  },
+  {
+   "id": "person/daniel",
+   "kind": "person",
+   "name": "Daniel",
+   "aliases": [
+    "son"
+   ],
+   "attrs": {
+    "relationship": {
+     "value": "son"
+    },
+    "telegram": {
+     "value": "9201"
+    }
+   }
+  },
+  {
+   "id": "org/hillside-clinic",
+   "kind": "org",
+   "name": "Hillside Clinic",
+   "aliases": [],
+   "attrs": {
+    "phone": {
+     "value": "01632 960 114"
+    }
+   }
+  },
+  {
+   "id": "org/home-insurer",
+   "kind": "org",
+   "name": "the home insurer",
+   "aliases": [],
+   "attrs": {}
+  },
+  {
+   "id": "thing/hearing-aid",
+   "kind": "thing",
+   "name": "the hearing aid",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "back from repair on Sep 30 and working"
+    }
+   }
+  },
+  {
+   "id": "activity/bridge-club",
+   "kind": "activity",
+   "name": "Bridge club",
+   "aliases": [],
+   "attrs": {
+    "schedule": {
+     "value": "Thursdays 14:00"
+    },
+    "cadence": {
+     "value": "weekly"
+    },
+    "last": {
+     "value": "2026-10-01T13:00:00Z"
+    },
+    "next": {
+     "value": "2026-10-08T13:00:00Z"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-09-08-cardiology-referral",
+   "kind": "situation",
+   "name": "Cardiology referral",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-09-08T10:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     }
+    ],
+    "needs": {
+     "value": "the clinic gives a date for the cardiology appointment"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "org/hillside-clinic"
+     }
+    },
+    "summary": {
+     "value": "referral sent Sep 8; the clinic said to expect a date within two weeks; nothing since"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-08-20-water-damage-claim",
+   "kind": "situation",
+   "name": "Water damage claim",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-08-20T09:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     }
+    ],
+    "needs": {
+     "value": "the insurer pays the claim"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "org/home-insurer"
+     }
+    },
+    "summary": {
+     "value": "the insurer paid 1,840 into the account on Oct 1"
+    }
+   }
+  },
+  {
+   "id": "situation/2026-09-15-hearing-aid-repair",
+   "kind": "situation",
+   "name": "Hearing aid repair",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-09-15T11:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     }
+    ],
+    "needs": {
+     "value": "the hearing aid is back and working"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "org/hillside-clinic"
+     }
+    }
+   }
+  },
+  {
+   "id": "situation/2026-10-02-half-term-visit",
+   "kind": "situation",
+   "name": "Half-term visit",
+   "aliases": [],
+   "attrs": {
+    "status": {
+     "value": "open"
+    },
+    "started": {
+     "value": "2026-10-02T18:00:00Z"
+    },
+    "participants": [
+     {
+      "value": {
+       "ref": "person/me"
+      }
+     },
+     {
+      "value": {
+       "ref": "person/daniel"
+      }
+     }
+    ],
+    "needs": {
+     "value": "a week is agreed with Daniel for the visit"
+    },
+    "waiting-on": {
+     "value": {
+      "ref": "person/me"
+     }
+    },
+    "summary": {
+     "value": "Daniel asked on Oct 2 which week suits; no answer given yet"
+    }
+   }
+  }
+ ],
+ "situations": [
+  "situation/2026-09-08-cardiology-referral",
+  "situation/2026-08-20-water-damage-claim",
+  "situation/2026-09-15-hearing-aid-repair",
+  "situation/2026-10-02-half-term-visit"
+ ],
+ "actions": [],
+ "schema": {
+  "kinds": {
+   "situation": {
+    "attrs": [
+     "status",
+     "participants",
+     "location",
+     "starts",
+     "ends",
+     "started",
+     "ended",
+     "summary",
+     "needs",
+     "waiting-on",
+     "outcome"
+    ]
+   }
+  },
+  "multi": [
+   "participants"
+  ],
+  "actions": [
+   "task",
+   "note",
+   "message",
+   "calendar",
+   "correct",
+   "fact",
+   "merge",
+   "preference",
+   "resolve"
+  ],
+  "payloads": {
+   "task": {
+    "notes": "optional: what to do, in a sentence"
+   },
+   "note": {
+    "text": "required: the note for the owner"
+   },
+   "message": {
+    "via": "required: one of chat, telegram, mail",
+    "to": "required: the body id of the person",
+    "text": "required: the message, short, in the owner's own voice"
+   },
+   "calendar": {
+    "title": "required",
+    "starts": "required: ISO 8601 UTC",
+    "ends": "optional: ISO 8601 UTC",
+    "location": "optional"
+   },
+   "correct": {
+    "subject": "required: the body id the wrong fact is about",
+    "attr": "required",
+    "value": "required: the wrong value as the state shows it",
+    "why": "optional"
+   },
+   "fact": {
+    "subject": "required: the body id",
+    "attr": "required",
+    "value": "required"
+   },
+   "merge": {
+    "from": "required: the body id folded away",
+    "into": "required: the body id kept"
+   },
+   "preference": {
+    "text": "required: the standing rule, in the owner's words"
+   },
+   "resolve": {
+    "situation": "required: the id of the situation that is over",
+    "outcome": "required: how it ended, one short sentence",
+    "evidence": "optional: the fact that shows it"
+   }
+  },
+  "style": "",
+  "preferences": []
+ },
+ "expect": {
+  "situation/2026-09-08-cardiology-referral": [
+   "task",
+   "message"
+  ],
+  "situation/2026-08-20-water-damage-claim": [
+   "resolve"
+  ],
+  "situation/2026-09-15-hearing-aid-repair": [
+   "resolve"
+  ],
+  "situation/2026-10-02-half-term-visit": [
+   "message",
+   "task"
+  ]
+ }
+}

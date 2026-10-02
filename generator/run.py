@@ -325,6 +325,14 @@ def validate(answer, state, decided, limit):
             if missing:
                 notes.append('dropped %s: payload lacks %s' % (title, ', '.join(missing)))
                 continue
+        if kind == 'resolve':
+            #  of a situation the ship holds, and about it whether or not the model said so
+            sit = str(payload.get('situation') or '')
+            if not sit.startswith('situation/') or sit not in known:
+                notes.append('dropped %s: the ship holds no such situation' % title)
+                continue
+            if sit not in about:
+                about = [sit] + about
         row = {'kind': kind, 'title': title, 'about': about[:20], 'payload': payload}
         due = analyze.iso_or_none(a.get('due'))
         if due:
