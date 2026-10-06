@@ -1,0 +1,4 @@
+{
+  "orrery": {"url": "https://your-ship.example", "token_env": "ORRERY_TOKEN"},
+  "state": "state.json"
+}
