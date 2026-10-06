@@ -128,8 +128,7 @@ Watches a mailbox over IMAP, reads what arrived since its cursor, decides with r
 | the message | what the reader writes |
 |---|---|
 | a shipping notice with an arrival day | `thing/<order>.status = "shipped"`, `location = "in transit"`, `until` the arrival day; the body named for the product and seller, the order number as an alias. A notice that names no product, no arrival day and no tracking number is skipped |
-| a flight or hotel confirmation | `situation/<date>-trip` with `status` open, `participants` `person/me` and `started` |
-| an invoice with a due date | an action: `task` "Pay <org> <amount>", `about` the org, `due` the date |
+| a flight or hotel confirmation, a bill, a receipt, a reimbursement | the model's: a trip `situation`, a `task` to pay only what asks to be paid, a fact about money that has moved |
 | a person writing from a new address | `person/<x>.email = <address>`, `conf` 80 |
 | a reply that says where someone is or what they are doing | `person/<x>.location` or `.status`, `conf` from the model, `until` when the message implies one |
 | a calendar invitation | nothing; the calendar integration owns those |

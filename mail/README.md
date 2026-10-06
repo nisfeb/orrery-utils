@@ -12,14 +12,14 @@ The rules run in this order. The first rule that claims a message stops the rest
 |---|---|---|
 | a calendar invitation (a `text/calendar` part, or a subject starting `Invitation:`) | `skip_calendar` | nothing; the calendar integration owns those |
 | a shipping notice ("has shipped", "is on its way" or "on the way", "out for delivery", "has been delivered") | `shipping` | `thing/order-<number>` named for what was ordered and who sent it ("Anker 6-Outlet Surge Protector from Amazon.com"), the order number as an alias (a number has a digit in it; prose after the word order does not count). The product is a quoted title in the subject, the words in brackets after the order number, or an item line ending `× 1`. A mail that names no product still makes a body ("Order 4471 from Some Store") when it gives something to follow, an arrival date or a tracking number (a UPS `1Z…`, or the token after the word tracking), which lands as `tracking`; with none of the three it only updates an order the ship already has, found by resolving `order <number>` or `tracking <number>`, and is otherwise skipped with a note, because a body called "Order 4471" with nothing on it is noise; `status` `shipped`, `out for delivery` or `delivered`; `location` `in transit` until delivered, when it is cleared; `until` the end of the arrival day when the mail names one; `conf` 90 |
-| an invoice or bill with an amount ("invoice", "bill", "amount due", ...) | `invoice` | an action: `task` "Pay <payee> <amount>", `due` the date after "due" when there is one. A company payee gets `org/<name>` created and the task is about it; a payee whose name reads like a person's is resolved against the ship's people and the task is about that person, and no org is ever made from a person's name. A receipt ("payment received", "thank you for your payment", ...) with no due date is claimed and writes nothing |
-| a flight, hotel or booking confirmation with a date | `trip` | `situation/<date>-trip` created; `status` `open`, `participants` `person/me`, `started` the date; `conf` 80 |
 | bulk mail (a `List-Unsubscribe` header or `Precedence: bulk`) | `skip_bulk` | nothing |
 | a sender or subject on the `filters` lists, or a sender not on `only_from` when that list is set (below) | `skip_filtered` | nothing |
 | a person the ship already knows, writing from an address it does not have | `known_person` | `person/<x>.email = <address>`, `conf` 80. Needs the ship: skipped in a dry run |
 | anything else | `classify_with_model` | the model's facts, below, when the config has a `model` block; otherwise nothing |
 
-Dates: `at` is the message's `Date` header, because the fact became known when the mail arrived; a trip's own start date is the value of `started`. A date with no year takes the message's year, or the next one when it would fall more than a month before the message. `until` on a shipment is midnight after the arrival day.
+Money and travel are the model's. A rule on "invoice" and an amount used to make a task to pay here, and could not tell a bill from a receipt or a reimbursement: it asked the owner to pay both. The analyst prompt now says that money has a direction, and the model reads the whole mail, with the owner's dismissals and the reasons they gave in its context.
+
+Dates: `at` is the message's `Date` header, because the fact became known when the mail arrived. A date with no year takes the message's year, or the next one when it would fall more than a month before the message. `until` on a shipment is midnight after the arrival day.
 
 Sensitive facts: the rules write neither `health` nor `income`. A model that reads statements or results must map money and health facts to those two attributes and nowhere else, which the starter policy's `sensitive` list keeps from every key.
 
@@ -43,7 +43,7 @@ Spam usually never reaches the reader: it sits in the Junk folder, and the reade
 
 `from` and `subject` are substrings, matched without regard to case, against the sender's name and address and against the subject; one match skips the message. `only_from`, when it is not empty, is an allowlist: only senders matching one of its entries reach the model, which is the strictest and simplest setting for a personal world model, where the mail that matters comes from a few dozen people. Bulk mail with a `List-Unsubscribe` header or `Precedence: bulk` is skipped before any of this.
 
-The transactional rules run before the filters, so a shipping notice or an invoice from a `noreply@` address still lands. A skipped message is logged with the entry that matched, so a dry run over a month of mail is the way to tune the lists: run it with `--no-model` first, which takes seconds instead of hours, and read the log.
+The shipping rule runs before the filters, so a shipping notice from a `noreply@` address still lands; a bill from one is the model's, and the filters apply to it first. A skipped message is logged with the entry that matched, so a dry run over a month of mail is the way to tune the lists: run it with `--no-model` first, which takes seconds instead of hours, and read the log.
 
 ## Backfill
 
@@ -120,7 +120,6 @@ The message: headers, text, attachments, everything. Only the Message-ID crosses
   longest substring that still catches what you mean, and check a candidate against a dry run before adding it.
 - An order without a number is keyed by its tracking number, or failing that its product, so two orders of the same thing with neither share a body. The number is in almost every shipping mail.
 - A store whose mail names the product some other way (an HTML table, "Qty: 1") gets bodies named by number ("Order 4471 from ...") when its mail gives an arrival day or a tracking number, and none otherwise.
-- The `trip` rule takes the first date in the mail as the start. A confirmation that names a booking date before the travel date needs the model rule.
 - `at` comes from the `Date` header, so a message stamped ahead of the ship's clock is a future fact on the ship until that time passes. It lands, and it folds in when its time comes.
 
 Checked end to end on a dev ship on 2026-09-17: the three fact fixtures landed under a key scoped as above, the task was auto-approved with `by` `mail`, and the known-person rule wrote the new address for a person the ship knew.

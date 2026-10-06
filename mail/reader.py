@@ -259,7 +259,6 @@ def window(text, pattern, span=80):
     return text[m.end():m.end() + span] if m else ''
 
 
-AMOUNT_RE = re.compile(r'(?:\$|€|£|USD|EUR|GBP)\s?\d[\d,]*(?:\.\d{2})?')
 
 
 def source(msg):
@@ -407,69 +406,13 @@ def shipping(msg, facts, ship):
     return True
 
 
-BILL_RE = re.compile(r'\b(invoice|bill|payment due|amount due|balance due)\b', re.I)
-PAID_RE = re.compile(r'\b(thank you for your payment|payment (?:received|confirmation|successful)|receipt|'
-                     r'has been paid|you paid|paid on)\b', re.I)
-ORG_WORDS = {'inc', 'llc', 'ltd', 'co', 'corp', 'company', 'bank', 'club', 'church', 'school', 'storage',
-             'support', 'services', 'service', 'group', 'team', 'billing', 'insurance', 'store', 'shop',
-             'market', 'office', 'dept', 'department', 'associates', 'partners', 'clinic', 'center', 'centre'}
-
-
-def looks_like_person(name):
-    """Two or three capitalised words with no company word among them."""
-    words = re.findall(r"[A-Za-z][A-Za-z'.-]*", name)
-    return (2 <= len(words) <= 3 and '@' not in name and all(w[0].isupper() for w in words)
-            and not any(w.lower().strip('.') in ORG_WORDS for w in words))
-
-
-def invoice(msg, facts, ship):
-    if not BILL_RE.search(msg.haystack):
-        return False
-    if PAID_RE.search(msg.haystack) and not re.search(r'\bdue\b', msg.haystack, re.I):
-        facts.notes.append('a receipt: nothing to pay')
-        return True
-    amount = AMOUNT_RE.search(msg.haystack)
-    if not amount:
-        return False
-    payee = msg.from_name or msg.from_addr
-    if '@' in payee:
-        payee = payee.split('@')[-1].split('.')[0]
-    due = find_date(window(msg.haystack, r'\bdue\b(?:\s+(?:on|by|date))?[:\s]*', 60), msg.date)
-    action = {'kind': 'task', 'title': short('Pay ' + payee + ' ' + amount.group(0).replace(' ', ''))}
-    if looks_like_person(payee):
-        #  a person's request: the task is about the person the ship knows, never an org body
-        hits = [h for h in ship.resolve(payee) if isinstance(h, dict) and h.get('kind') == 'person']
-        if len(hits) == 1:
-            action['about'] = [hits[0]['id']]
-        else:
-            facts.notes.append('payee looks like a person the ship does not know: no body made')
-    else:
-        bid = 'org/' + slug(payee)
-        facts.body(bid, payee)
-        action['about'] = [bid]
-    if due:
-        action['due'] = iso(due)
-    facts.actions.append(action)
-    return True
-
-
-TRIP_RE = re.compile(r'\b(itinerary|booking confirm\w*|reservation (?:is )?confirmed|your flight|'
-                     r'your hotel|your stay|check-in)\b', re.I)
-
-
-def trip(msg, facts, ship):
-    if not TRIP_RE.search(msg.haystack):
-        return False
-    start = find_date(msg.haystack, msg.date)
-    if not start:
-        return False
-    day = start.strftime('%Y-%m-%d')
-    bid = 'situation/' + day + '-trip'
-    facts.body(bid, 'Trip starting ' + day)
-    facts.observations.append(obs(msg, bid, 'status', 'open', conf=80))
-    facts.observations.append(obs(msg, bid, 'participants', {'ref': 'person/me'}, conf=80))
-    facts.observations.append(obs(msg, bid, 'started', day, conf=80))
-    return True
+#  Money and travel went to rules here once: a regex on "invoice" and an
+#  amount made a task to pay, and one on "booking confirmed" made a trip.
+#  The bill rule could not tell a bill from a receipt or a reimbursement
+#  and asked the owner to pay both for a week, so both went to the model,
+#  which reads the whole mail and is told that money has a direction.
+#  The rules that stay are plumbing: what to skip, and a known person's
+#  new address.
 
 
 def skip_bulk(msg, facts, ship):
@@ -571,7 +514,7 @@ def classify_with_model(msg, facts, ship):
     return True
 
 
-RULES = [skip_calendar, shipping, invoice, trip, skip_bulk, skip_filtered, known_person, classify_with_model]
+RULES = [skip_calendar, shipping, skip_bulk, skip_filtered, known_person, classify_with_model]
 
 
 def classify(msg, ship):

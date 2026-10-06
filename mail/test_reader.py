@@ -154,6 +154,47 @@ class Filters(unittest.TestCase):
         self.assertEqual(facts.observations[0]['attr'], 'status')
 
 
+class Money(unittest.TestCase):
+    """Money mail is the model's. A regex on "invoice" and an amount used to
+    make a task to pay, and could not tell a bill from a receipt or a
+    reimbursement: the owner was asked to pay both for a week. No rule claims
+    these now; with no model configured they say nothing at all."""
+
+    def mail(self, subject, body, sender='Acme Billing <billing@acme.example>'):
+        raw = ('From: %s\nTo: me@example.com\nSubject: %s\nDate: Thu, 17 Sep 2026 09:15:00 +0000\n'
+               'Message-ID: <m-%d@acme.example>\nContent-Type: text/plain; charset=utf-8\n\n%s'
+               % (sender, subject, abs(hash(subject + body)) % 10**8, body)).encode()
+        return reader.parse(raw)
+
+    def test_no_rule_claims_money_mail(self):
+        for subject, body in [
+                ('Your invoice for September', 'Amount due: $142.50. Payment is due by September 30, 2026.'),
+                ('Your Acme invoice is available', 'Thank you for your payment of $2.76. Invoice #4411 has been paid.'),
+                ('Expense reimbursement processed', 'Your reimbursement of USD1,489.20 for invoice EXP-77 has been approved.'),
+                ('Refund issued for order 258702', 'Your refund of $89.00 has been issued to your card.')]:
+            facts = reader.classify(self.mail(subject, body), reader.NoShip())
+            self.assertEqual((facts.bodies, facts.observations, facts.actions), ([], [], []), subject)
+
+    def test_money_mail_reaches_the_model_whole(self):
+        seen = []
+        class Spy(reader.analyze.FakeModel):
+            def chat(self, system, user, parts=None):
+                seen.append(user)
+                return super().chat(system, user, parts)
+        reader.CONTEXT = None
+        reader.MODEL = Spy(json.dumps({'bodies': [], 'observations': [], 'actions': []}))
+        try:
+            reader.classify(self.mail('Expense reimbursement processed', 'Your reimbursement of USD1,489.20 was approved.'),
+                            WithModel.KnowingShip())
+        finally:
+            reader.MODEL = None
+            reader.CONTEXT = None
+        self.assertEqual(len(seen), 1)
+        sent = json.dumps(seen[0])
+        self.assertIn('Expense reimbursement processed', sent)
+        self.assertIn('Your reimbursement of USD1,489.20 was approved.', sent)
+
+
 class WithModel(unittest.TestCase):
     """The model hook: free text the rules leave alone goes to the analyst,
     whose answer lands as facts with the mail's Message-ID as the source."""

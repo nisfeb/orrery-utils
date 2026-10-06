@@ -38,68 +38,13 @@
   "actions": []
  },
  "invoice": {
-  "bodies": [
-   {
-    "id": "org/utility-co",
-    "name": "Utility Co"
-   }
-  ],
+  "bodies": [],
   "observations": [],
-  "actions": [
-   {
-    "kind": "task",
-    "title": "Pay Utility Co $142.50",
-    "about": [
-     "org/utility-co"
-    ],
-    "due": "2026-09-30T00:00:00Z"
-   }
-  ]
+  "actions": []
  },
  "trip": {
-  "bodies": [
-   {
-    "id": "situation/2026-10-03-trip",
-    "name": "Trip starting 2026-10-03"
-   }
-  ],
-  "observations": [
-   {
-    "subject": "situation/2026-10-03-trip",
-    "attr": "status",
-    "value": "open",
-    "at": "2026-09-17T16:20:00Z",
-    "conf": 80,
-    "source": {
-     "kind": "mail",
-     "id": "<bk-88213@flyair.example>"
-    }
-   },
-   {
-    "subject": "situation/2026-10-03-trip",
-    "attr": "participants",
-    "value": {
-     "ref": "person/me"
-    },
-    "at": "2026-09-17T16:20:00Z",
-    "conf": 80,
-    "source": {
-     "kind": "mail",
-     "id": "<bk-88213@flyair.example>"
-    }
-   },
-   {
-    "subject": "situation/2026-10-03-trip",
-    "attr": "started",
-    "value": "2026-10-03",
-    "at": "2026-09-17T16:20:00Z",
-    "conf": 80,
-    "source": {
-     "kind": "mail",
-     "id": "<bk-88213@flyair.example>"
-    }
-   }
-  ],
+  "bodies": [],
+  "observations": [],
   "actions": []
  },
  "newsletter": {
