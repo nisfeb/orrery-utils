@@ -55,6 +55,72 @@ class Signals(unittest.TestCase):
         self.assertFalse(reporter.desktop_unlocked(runner, uid=1000))
 
 
+class Idle(unittest.TestCase):
+    """The idle watch against a fake compositor on a socket pair."""
+
+    def compositor(self, sock, events, seen):
+        import struct
+        def msg(obj, op, body=b''):
+            sock.sendall(struct.pack('=II', obj, (8 + len(body)) << 16 | op) + body)
+        def string(t):
+            b = t.encode() + b'\0'
+            return struct.pack('=I', len(b)) + b + b'\0' * (-len(b) % 4)
+        def read(n):
+            out = b''
+            while len(out) < n:
+                out += sock.recv(n - len(out))
+            return out
+        def request():
+            obj, word = struct.unpack('=II', read(8))
+            return obj, word & 0xffff, read((word >> 16) - 8)
+        seen.append(request())                     # get_registry
+        seen.append(request())                     # sync
+        msg(2, 0, struct.pack('=I', 11) + string('wl_seat') + struct.pack('=I', 10))
+        msg(2, 0, struct.pack('=I', 21) + string('ext_idle_notifier_v1') + struct.pack('=I', 2))
+        msg(3, 0, struct.pack('=I', 1))            # done
+        for _ in range(3):                         # two binds and the notification
+            seen.append(request())
+        for op in events:
+            msg(6, op)
+        sock.close()
+
+    def run_watch(self, events):
+        import socket, threading
+        a, b = socket.socketpair()
+        seen = []
+        t = threading.Thread(target=self.compositor, args=(b, events, seen))
+        t.start()
+        w = reporter.IdleWatch(timeout=300)
+        with self.assertRaises(ConnectionError):
+            w.watch(a)
+        t.join()
+        a.close()
+        return w, seen
+
+    def test_no_input_for_the_timeout_is_idle_and_input_again_is_not(self):
+        w, seen = self.run_watch([0])
+        self.assertTrue(w.ok and w.idle)
+        w, seen = self.run_watch([0, 1])
+        self.assertTrue(w.ok and not w.idle)
+
+    def test_it_asks_for_input_idle_after_five_minutes_on_the_seat(self):
+        import struct
+        w, seen = self.run_watch([])
+        obj, op, body = seen[-1]
+        self.assertEqual((obj, op), (5, 2))        # get_input_idle_notification
+        self.assertEqual(struct.unpack('=III', body), (6, 300000, 4))
+
+    def test_the_desktop_counts_only_unlocked_and_not_idle_and_watched(self):
+        class W: ok, idle = True, False
+        yes, no = (lambda: True), (lambda: False)
+        self.assertTrue(reporter.desktop_active(W, yes))
+        self.assertFalse(reporter.desktop_active(W, no))
+        W.idle = True
+        self.assertFalse(reporter.desktop_active(W, yes))
+        W.idle, W.ok = False, False
+        self.assertFalse(reporter.desktop_active(W, yes))
+
+
 class Send(unittest.TestCase):
     def test_the_day_goes_as_blocks_with_the_key(self):
         seen = {}
