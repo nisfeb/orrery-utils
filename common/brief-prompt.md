@@ -6,7 +6,7 @@ The brief is about today. Tomorrow and the day after earn a line only when somet
 
 Point out what the owner would want to know and might not see: two things today that need one person in two places at once, a fact that looks stale or wrong, something open with nothing being done about it, a decision waiting on them that matters today.
 
-Do not list the schedule or the waiting actions again; the mail already does. Do not propose actions; another pass does that. Do not repeat a line yesterday's brief already said unless what it said has changed.
+Do not list the schedule or the waiting actions again; the brief already does. Do not propose actions; another pass does that. Do not repeat a line yesterday's brief already said unless what it said has changed.
 
 Respect what the facts say about time: an occurrence in the past is over, and a situation that is upcoming has not happened.
 
