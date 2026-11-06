@@ -2,14 +2,20 @@
 """work: tell orrery when the owner is at the computer, never what they do.
 
 Each minute the reporter decides whether the owner is active: a graphical
-session of theirs is unlocked (logind's LockedHint) and its compositor saw
-input in the last five minutes, or one of their terminals took a key in the
-last five minutes (a tty's access time moves when its reader takes input, so
-typing over SSH counts). Unlocked alone is not enough: a desktop that locks
-after ninety idle minutes counted an hour with the kids, or a drive, as an
-hour at the desk. The compositor tells, over the Wayland idle protocol
-(ext_idle_notifier_v1), only that no input came for five minutes and when it
-came again: never what it was. It keeps each local day's active minutes in its state file
+session of theirs is unlocked (logind's LockedHint) and they used its
+keyboard or mouse in the last five minutes, or one of their terminals took a
+key in the last five minutes (a tty's access time moves when its reader takes
+input, so typing over SSH counts). Unlocked alone is not enough: a desktop
+that locks after ninety idle minutes counted an hour with the kids, or a
+drive, as an hour at the desk. Use is read from the input devices themselves
+(/dev/input/event*): a key, a button or a scroll, or the mouse moved further
+than an optical sensor drifts on its own, looking at each event's type and
+never at which key. A mouse that reports a count of motion every minute or
+two with nobody near it kept a desk "in use" for hours when the compositor's
+word was all there was. With no device to read, the reporter still asks the
+compositor, over the Wayland idle protocol (ext_idle_notifier_v1), which says
+only that no input came for five minutes and when it came again. It keeps
+each local day's active minutes in its state file
 and every five minutes sends the day to orrery as blocks of activity, gaps of
 ten minutes or less merged: POST /apps/orrery/api/work {day, blocks}. No
 content, no window titles, no keystrokes: whether, never what.
@@ -27,6 +33,7 @@ import argparse
 import datetime
 import json
 import os
+import select
 import socket
 import struct
 import subprocess
@@ -35,9 +42,16 @@ import threading
 import time
 import urllib.request
 
-IDLE = 300          # seconds since a terminal's last key that still count as active
+IDLE = 300          # seconds since the last key or movement that still count as active
 GAP = 10            # minutes between two active minutes that still make one block
 KEEP = 3            # days of minutes the state file keeps
+#  ponytail: one threshold for every mouse; a sensor drifting on its own sends
+#  one count at a time, a couple within five seconds, so tens have a wide
+#  margin. Raise it if a mouse still keeps the desk in use
+MOVE = 40           # counts of pointer motion within WINDOW seconds that make a movement
+WINDOW = 2
+EVENT = struct.Struct('llHHi')      # struct input_event: time, type, code, value
+EV_KEY, EV_REL, REL_X, REL_Y = 1, 2, 0, 1
 
 
 def run(cmd):
@@ -172,11 +186,71 @@ class IdleWatch:
         return self
 
 
+class InputWatch:
+    """Whether a keyboard or a mouse was used in the last `timeout` seconds,
+    read from the input devices: a key or a button of any code, a scroll, or
+    pointer motion once it adds up to MOVE counts within WINDOW seconds.
+    Touch and switch events are not looked at. The code is read only to tell
+    a scroll from motion; which key is never read. ok is false while no
+    device can be read."""
+
+    def __init__(self, timeout=IDLE, root='/dev/input', move=MOVE):
+        self.timeout, self.root, self.move = timeout, root, move
+        self.last, self.ok, self.why = 0.0, False, 'not started'
+        self.fds, self.scanned, self.moved, self.since = {}, 0.0, 0, 0.0
+
+    @property
+    def idle(self):
+        return time.time() - self.last >= self.timeout
+
+    def take(self, data, now):
+        for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+            _, _, kind, code, value = EVENT.unpack_from(data, i)
+            if kind == EV_KEY or (kind == EV_REL and code not in (REL_X, REL_Y)):
+                self.last = now
+            elif kind == EV_REL:
+                if now - self.since > WINDOW:
+                    self.since, self.moved = now, 0
+                self.moved += abs(value)
+                if self.moved >= self.move:
+                    self.last = now
+
+    def scan(self):
+        """Open the event devices not yet open, so a mouse plugged in later counts."""
+        self.scanned = time.time()
+        for name in sorted(os.listdir(self.root)):
+            if name.startswith('event') and name not in self.fds.values():
+                try:
+                    self.fds[os.open(os.path.join(self.root, name), os.O_RDONLY | os.O_NONBLOCK)] = name
+                except OSError:
+                    pass
+        self.ok = bool(self.fds)
+        self.why = '' if self.ok else 'no input device can be read'
+        return self
+
+    def run(self):
+        while True:
+            if time.time() - self.scanned >= 60:
+                self.scan()
+            for fd in select.select(list(self.fds), [], [], 60)[0]:
+                try:
+                    self.take(os.read(fd, EVENT.size * 64), time.time())
+                except BlockingIOError:
+                    pass
+                except OSError:                   # unplugged
+                    os.close(fd)
+                    del self.fds[fd]
+
+    def start(self):
+        threading.Thread(target=self.run, daemon=True).start()
+        return self
+
+
 WATCH = None
 
 
 def desktop_active(watch=None, unlocked=None):
-    """An unlocked graphical session whose compositor saw input lately."""
+    """An unlocked graphical session whose keyboard or mouse was used lately."""
     w = watch or WATCH
     return bool(w and w.ok and not w.idle) and (unlocked or desktop_unlocked)()
 
@@ -275,7 +349,11 @@ def main():
         tick(cfg, state_path, time.time(), 0, force=True)
         return
     global WATCH
-    WATCH = IdleWatch().start()
+    WATCH = InputWatch().scan()
+    if not WATCH.ok:
+        print('no input device can be read; asking the compositor, which counts a drifting mouse as use', file=sys.stderr)
+        WATCH = IdleWatch()
+    WATCH.start()
     sent_at = 0
     while True:
         sent_at = tick(cfg, state_path, time.time(), sent_at)

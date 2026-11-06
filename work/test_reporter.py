@@ -121,6 +121,54 @@ class Idle(unittest.TestCase):
         self.assertFalse(reporter.desktop_active(W, yes))
 
 
+class Input(unittest.TestCase):
+    """The input watch, fed the kernel's input events."""
+
+    def frames(self, *events):
+        return b''.join(reporter.EVENT.pack(0, 0, kind, code, value) for kind, code, value in events)
+
+    def test_a_mouse_drifting_a_count_at_a_time_is_not_use(self):
+        w = reporter.InputWatch()
+        now = time.time()
+        for i in range(200):                       # a count every three seconds
+            w.take(self.frames((2, i % 2, 1), (0, 0, 0)), now - 600 + 3 * i)
+        self.assertTrue(w.idle)
+        w.take(self.frames((2, 1, 1), (2, 1, -1), (0, 0, 0)), now)
+        self.assertTrue(w.idle)
+
+    def test_moving_the_mouse_a_key_a_button_or_a_scroll_is_use(self):
+        now = time.time()
+        for events in [[(2, 0, 25), (2, 1, -20)], [(1, 30, 1)], [(1, 272, 0)], [(2, 8, -1)], [(2, 11, 120)]]:
+            w = reporter.InputWatch()
+            w.take(self.frames(*events), now)
+            self.assertFalse(w.idle, events)
+
+    def test_motion_adds_up_within_the_window_only(self):
+        w = reporter.InputWatch()
+        now = time.time()
+        w.take(self.frames((2, 0, 30)), now - 10)
+        w.take(self.frames((2, 0, 30)), now - 5)
+        self.assertTrue(w.idle)
+        w.take(self.frames((2, 0, 30)), now - 4)
+        self.assertFalse(w.idle)
+
+    def test_touch_and_switch_events_are_not_looked_at(self):
+        w = reporter.InputWatch()
+        w.take(self.frames((3, 0, 500), (5, 2, 1), (4, 4, 7)), time.time())
+        self.assertTrue(w.idle)
+
+    def test_it_watches_the_event_devices_it_can_open(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(reporter.InputWatch(root=d).scan().ok)
+            for n in ['event0', 'event3', 'mice', 'js0']:
+                open(os.path.join(d, n), 'w').close()
+            w = reporter.InputWatch(root=d).scan()
+            self.assertTrue(w.ok)
+            self.assertEqual(sorted(w.fds.values()), ['event0', 'event3'])
+            for fd in w.fds:
+                os.close(fd)
+
+
 class Send(unittest.TestCase):
     def test_the_day_goes_as_blocks_with_the_key(self):
         seen = {}
